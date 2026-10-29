@@ -1,0 +1,69 @@
+name: Swift (macOS)
+
+# Every product on macOS and the iOS Simulator, and the Playground for both.
+# Gates merges.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Swift (macOS)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - run: swift --version
+      - name: Build and test (macOS)
+        run: swift test
+
+  ios:
+    name: Swift (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Test (iOS Simulator)
+        run: |
+          device="$(xcrun simctl list devices available -j |
+            python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')"
+          xcodebuild test -scheme Composer-Package -destination "id=$device" -skipPackagePluginValidation
+
+  playground:
+    name: Playground (iOS and macOS)
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: Playground
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Generate the Xcode project
+        run: brew install xcodegen && xcodegen generate
+      # build-for-testing also builds the UI tests.
+      - name: Build the app (iOS Simulator)
+        run: >-
+          xcodebuild build-for-testing -project Playground.xcodeproj -scheme Playground
+          -destination 'generic/platform=iOS Simulator'
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO
+      - name: Build the app (macOS)
+        run: >-
+          xcodebuild build-for-testing -project Playground.xcodeproj -scheme Playground
+          -destination 'generic/platform=macOS'
+          -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO

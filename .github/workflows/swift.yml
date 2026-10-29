@@ -1,0 +1,33 @@
+name: Swift
+
+# ComposerCore and the pure part of ComposerTesting on Linux. The Apple-only
+# layer, the iOS Simulator, and the Playground run in swift-macos.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Swift (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.2.4-bookworm
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Format
+        run: swift format lint --strict --recursive Sources Tests Package.swift Playground
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
