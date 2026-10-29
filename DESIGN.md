@@ -160,7 +160,7 @@ public enum Block: Sendable, Hashable {
   case paragraph([Inline])
   case codeBlock(language: String?, text: String)  // the fence language is kept
   case quote([Block])
-  case list(ListKind, items: [ListItem])           // nested up to 3 levels
+  case list(ListKind, items: [ListItem])           // nested up to 3 levels; deeper imports are clamped
 }
 
 public enum ListKind: Sendable, Hashable { case bullet, ordered(start: Int) }
@@ -284,11 +284,12 @@ The supported dialect:
 | `[text](url)`, autolinks                  | yes                                                                     |
 | Fenced code blocks                        | yes; the fence language is kept                                         |
 | `> quote`                                 | yes                                                                     |
-| `-` and `1.` lists                        | yes; ordered and unordered, nested up to 3 levels                       |
+| `-` and `1.` lists                        | yes; ordered and unordered, nested up to 3 levels (deeper nesting on import is clamped) |
 | `- [ ]` / `- [x]` task lists              | yes; toggleable                                                         |
 | Headings, tables, images, raw HTML        | no; kept as literal text                                                |
 
 - Export escapes only characters that would otherwise parse as syntax. A `*` between spaces stays as it is.
+- Lists nested deeper than 3 levels, in imported markdown or pasted HTML, are clamped to level 3: the deeper items become level-3 items, in their original order, and no text is lost.
 
 ### Directives and node codecs
 
@@ -315,17 +316,18 @@ JSON is the `Codable` form of `Document`, used for drafts, the private pasteboar
       "type": "paragraph",
       "children": [
         { "type": "text", "text": "hi ", "marks": ["bold"] },
-        { "type": "mention", "attrs": { "id": "user_123", "label": "tom" } }
+        { "type": "mention", "text": "@tom", "attrs": { "id": "user_123", "label": "tom" } }
       ]
     }
   ]
 }
 ```
 
-- Field names other than `version`, `type`, and `attrs` in the example are illustrative.
+- Field names other than `version`, `type`, `text`, and `attrs` in the example are illustrative.
 - The document has a top-level `version` integer.
 - Nodes are objects of the form `{ "type", "attrs", … }`.
-- A node whose type has no registered plugin decodes to an opaque `UnknownNode`. It keeps its JSON verbatim, renders and exports to markdown as its fallback text, and encodes back to the same JSON. A composer configured with fewer plugins than the one that wrote a draft therefore never destroys content.
+- Every atomic node has a required top-level `"text"` field holding its fallback text, for example `"@tom"` for a mention. Each node type's encoder always writes it.
+- A node whose type has no registered plugin decodes to an opaque `UnknownNode`. It keeps its JSON verbatim, renders and exports to markdown as its `text`, and encodes back to the same JSON. If `text` is missing, as in hand-written JSON, the node renders as `[type]`, for example `[poll]`, and its JSON is still kept verbatim. A composer configured with fewer plugins than the one that wrote a draft therefore never destroys content.
 
 ## Plugins
 
@@ -659,12 +661,12 @@ Defaults are expressed as per-platform configuration in Core, and all of them ca
 
 | Where                  | macOS                                                                        | iOS                                       |
 | ---------------------- | ---------------------------------------------------------------------------- | ----------------------------------------- |
-| Plain text, quotes     | ↩ sends; ⇧↩ inserts a newline                                                | ↩ inserts a newline; ⌘↩ sends (hardware keyboard) |
-| Code block             | ↩ inserts a newline; ↩ on an empty last line exits the block; ⌘↩ sends       | ⌘↩ sends; other rules open (see [Open questions](#open-questions)) |
-| List or task item      | ↩ creates a new item; ↩ on an empty item exits the list; ⌘↩ sends            | ⌘↩ sends; other rules open (see [Open questions](#open-questions)) |
-| Suggestions open       | ↩ commits the highlighted item                                               | ↩ commits the highlighted item            |
+| Outside blocks (plain text, quotes) | ↩ sends; ⇧↩ inserts a newline                                   | ↩ inserts a newline; the send button sends; ⌘↩ sends (hardware keyboard) |
+| Code block             | ↩ inserts a newline; ↩ on an empty last line exits the block; ⌘↩ sends       | the same; ⌘↩ sends (hardware keyboard)    |
+| List or task item      | ↩ creates a new item; ↩ on an empty item exits the list; ⌘↩ sends            | the same; ⌘↩ sends (hardware keyboard)    |
+| Suggestions open       | ↩ commits the highlighted item                                               | the same                                  |
 
-Why code blocks and lists differ on macOS: in those blocks a newline or a new item is what the user means almost every time, so ↩ does that there, and ⌘↩ sends from anywhere.
+The block rules are the same on both platforms. The only difference is that on macOS, ↩ outside a block sends. Inside code blocks and lists, a newline or a new item is what the user means almost every time, so ↩ does that there, and ⌘↩ sends from anywhere.
 
 ### Other differences
 
@@ -808,7 +810,7 @@ MentionsPlugin(source: users)
 
 The Playground hosts the XCTest UI tests that need a running app.
 
-- **Round trips** check the three properties in [Markdown](#markdown): `parse(serialize(doc)) == doc`, idempotent re-export, and unsupported syntax kept as literal text. They also check that an `UnknownNode` survives JSON round trips unchanged.
+- **Round trips** check the three properties in [Markdown](#markdown): `parse(serialize(doc)) == doc`, idempotent re-export, and unsupported syntax kept as literal text. They also check that lists nested deeper than 3 levels are clamped without losing text, and that an `UnknownNode` survives JSON round trips unchanged, with or without `text`.
 - **Conformance suite (`ComposerTesting`).** Scripted sessions (keys, IME marked text, paste, selection changes) run against a real `UITextView` in the iOS simulator and a real `NSTextView`, and assert that both produce identical `EditorState`s. Intended platform differences are listed in an explicit allowlist (see [Platform behavior](#platform-behavior)), so any other divergence fails. The two text systems differ in key handling, marked text, and selection affinity, and this suite is what catches those differences. The session format and assertions build on Linux, so Core tests can run the same sessions against the controller without a text view.
 
 ```swift
@@ -881,6 +883,4 @@ Explicitly deferred work:
 
 ## Open questions
 
-1. **Lists nested deeper than 3 levels on import.** Editing caps nesting at 3 levels, and content is never dropped. What does imported markdown or pasted HTML nested deeper become: clamped to level 3, or kept as literal text?
-2. **The fallback text of an `UnknownNode`.** An unknown node renders and exports as its fallback text. Where does that text come from: a required field in the JSON node (for example `"text"`), its `attrs.label`, or something else, and what is used when the field is missing?
-3. **↩ in code blocks and lists on iOS.** The block rules were decided for macOS. On iOS, does ↩ in a list create a new item and exit on an empty item, and does ↩ on an empty last line of a code block exit it, as on macOS?
+None. Questions found during implementation go here until they are decided. The decision then moves into the relevant section.
