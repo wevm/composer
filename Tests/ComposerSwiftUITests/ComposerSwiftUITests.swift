@@ -57,6 +57,21 @@
       }
     }
 
+    /// The first view of a type in the window, if any.
+    func first<T>(_ type: T.Type) -> T? {
+      #if canImport(UIKit)
+        var queue: [UIView] = [window]
+      #else
+        var queue: [NSView] = [window.contentView!]
+      #endif
+      while !queue.isEmpty {
+        let view = queue.removeFirst()
+        if let match = view as? T { return match }
+        queue += view.subviews
+      }
+      return nil
+    }
+
     var textView: ComposerTextView {
       #if canImport(UIKit)
         let root: UIView = window
@@ -219,6 +234,19 @@
       host.settle()
       #expect(RenderCounts.attachmentsBodies > tray)
       #expect(controller.isEnabled(SendAction.id))
+    }
+
+    @Test func contentIsTextUnlessHoverOrMenusNeedTextKit() throws {
+      let mention = AtomicNode(type: .mention, label: "tom")
+      let document = Document(blocks: [.paragraph([.text("hi "), .node(mention)])])
+      let plain = Host(Composer.Content(document))
+      #expect(plain.first(ComposerContentView.self) == nil, "a Text")
+      let hovering = Host(Composer.Content(document).onHoverNode { _ in })
+      let view = try #require(hovering.first(ComposerContentView.self))
+      #expect(view.document == document)
+      #expect(view.frame.height >= view.fittingHeight - 1, "sized to fit its text")
+      let forced = Host(Composer.Content(document).contentRenderer(.textKit))
+      #expect(forced.first(ComposerContentView.self) != nil)
     }
 
     struct Sized: View {

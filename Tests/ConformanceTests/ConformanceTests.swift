@@ -381,6 +381,62 @@
       #expect(driver.controller.markdown == "- [x] milk\n- [x] eggs")
     }
 
+    /// Hit testing finds the token or link under a point, by the rects the
+    /// text draws them in; a read-only content view reports taps on them.
+    @Test func hoverTargetsAreWhatIsDrawnAtThePoint() throws {
+      let mention = AtomicNode(type: .mention, label: "tom", attributes: ["id": "1"])
+      let document = Document(blocks: [
+        .paragraph([
+          .text("hi "), .node(mention), .text(" see "),
+          .text("site", marks: .link("https://x.dev")), .text(" end"),
+        ])
+      ])
+      let schema = Schema(plugins: [MentionsPlugin(source: .static(people))])
+      let view = ComposerContentView(document: document, schema: schema)
+      #if canImport(UIKit)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 200))
+        window.addSubview(view)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 100)
+        view.layoutIfNeeded()
+      #else
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView?.addSubview(view)
+        view.frame = NSRect(x: 0, y: 0, width: 320, height: 100)
+        view.layoutSubtreeIfNeeded()
+      #endif
+      let tokenRect = view.rect(for: Position(3)..<Position(4))
+      #expect(tokenRect.width > 10, "the token draws as its label")
+      let token = try #require(view.hoverTarget(at: CGPoint(x: tokenRect.midX, y: tokenRect.midY)))
+      #expect(token.kind == .node(mention))
+      #expect(token.range == Position(3)..<Position(4))
+      let linkRect = view.rect(for: Position(9)..<Position(13))
+      let link = try #require(view.hoverTarget(at: CGPoint(x: linkRect.midX, y: linkRect.midY)))
+      #expect(link.kind == .link("https://x.dev"))
+      let plain = view.rect(for: Position(0)..<Position(2))
+      #expect(view.hoverTarget(at: CGPoint(x: plain.midX, y: plain.midY)) == nil)
+      #expect(view.hoverTarget(at: CGPoint(x: 310, y: tokenRect.midY)) == nil, "past the end")
+      #expect(!view.isEditable)
+      #expect(view.fittingHeight > 0)
+      #if canImport(AppKit) && !canImport(UIKit)
+        var tapped: AtomicNode?
+        view.onTapNode = { tapped = $0 }
+        let point = view.convert(CGPoint(x: tokenRect.midX, y: tokenRect.midY), to: nil)
+        let event = try #require(
+          NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+            pressure: 1))
+        view.mouseDown(with: event)
+        #expect(tapped == mention)
+      #endif
+    }
+
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
       let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))

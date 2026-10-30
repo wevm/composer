@@ -174,3 +174,24 @@ public struct TokenStyle: Sendable, Hashable {
 /// Restyles a node type's tokens in one view, over the plugin's style (see
 /// `.composerTextStyle(for:)`).
 public typealias TokenStyleOverride = @Sendable (TokenStyle) -> TokenStyle
+
+extension Schema {
+  /// The node types some plugins register, for rendering documents outside
+  /// a composer, such as in `ComposerContentView`.
+  public init(plugins: [any ComposerPlugin]) {
+    var registry = PluginRegistry()
+    registry.install(plugins)
+    self = registry.schema
+  }
+}
+
+/// Uses a schema as it is, replacing what earlier plugins registered.
+public struct SchemaPlugin: ComposerPlugin {
+  let schema: Schema
+
+  public init(_ schema: Schema) { self.schema = schema }
+
+  public func register(in registry: inout PluginRegistry) {
+    registry.schema = schema
+  }
+}

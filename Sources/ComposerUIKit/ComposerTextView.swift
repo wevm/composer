@@ -126,6 +126,7 @@
       let taskTap = UITapGestureRecognizer(target: self, action: #selector(tapTaskBox(_:)))
       addGestureRecognizer(taskTap)
       self.taskTap = taskTap
+      addGestureRecognizer(hoverRecognizer)
       reload()
       isApplying = false
     }
@@ -386,6 +387,63 @@
         selectedRange, previous: current, fromKeyboard: isHandlingKey, map: storageMap)
       guard selection != current else { return }
       controller.selection = selection
+    }
+
+    // MARK: Hover and context menus
+
+    /// The menu for a long-press or secondary click on a token or link, if
+    /// any.
+    public var contextMenuProvider: ((HoverTarget) -> UIMenu?)? {
+      didSet {
+        if contextMenuProvider != nil, menuInteraction == nil {
+          menuDelegate.view = self
+          let interaction = UIContextMenuInteraction(delegate: menuDelegate)
+          addInteraction(interaction)
+          menuInteraction = interaction
+        }
+      }
+    }
+    private var menuInteraction: UIContextMenuInteraction?
+    private let menuDelegate = MenuDelegate()
+
+    /// Menus for tokens and links, from `contextMenuProvider`.
+    private final class MenuDelegate: NSObject, UIContextMenuInteractionDelegate {
+      weak var view: ComposerTextView?
+
+      func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint
+      ) -> UIContextMenuConfiguration? {
+        guard let view, let provider = view.contextMenuProvider,
+          let target = view.hoverTarget(at: location), let menu = provider(target)
+        else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in menu }
+      }
+    }
+    private lazy var hoverRecognizer = UIHoverGestureRecognizer(
+      target: self, action: #selector(hovered(_:)))
+
+    /// Where pointer moves go: the controller's tracker.
+    open var hover: HoverTracker { controller.hover }
+
+    /// The token or link drawn at a point in the view, with its rect.
+    public func hoverTarget(at point: CGPoint) -> HoverTarget? {
+      guard let textLayoutManager else { return nil }
+      let inset = textContainerInset
+      guard
+        let offset = textLayoutManager.characterOffset(
+          at: CGPoint(x: point.x - inset.left, y: point.y - inset.top)),
+        let (kind, range) = controller.document.hoverKind(
+          at: storageMap.document(offset, rounding: .down))
+      else { return nil }
+      return HoverTarget(kind: kind, range: range, anchor: rect(for: range))
+    }
+
+    /// iPad pointer moves feed the controller's hover.
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+      switch recognizer.state {
+      case .began, .changed: hover.pointer(over: hoverTarget(at: recognizer.location(in: self)))
+      default: hover.pointer(over: nil)
+      }
     }
 
     // MARK: Taps

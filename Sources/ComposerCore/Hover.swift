@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+#if canImport(CoreGraphics)
+  import CoreGraphics
+#endif
+
 /// What the pointer is over: a token or a link, and where it is drawn, in
 /// the view's coordinates.
 public struct HoverTarget: Sendable, Equatable {

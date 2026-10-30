@@ -337,8 +337,63 @@
 
     // MARK: Mouse
 
+    /// The menu for a right-click on a token or link, if any; other
+    /// right-clicks get the standard menu.
+    public var contextMenuProvider: ((HoverTarget) -> NSMenu?)?
+
+    /// The token or link drawn at a point in the view, with its rect.
+    public func hoverTarget(at point: CGPoint) -> HoverTarget? {
+      guard let textLayoutManager else { return nil }
+      let origin = textContainerOrigin
+      guard
+        let offset = textLayoutManager.characterOffset(
+          at: CGPoint(x: point.x - origin.x, y: point.y - origin.y)),
+        let (kind, range) = controller.document.hoverKind(
+          at: storageMap.document(offset, rounding: .down))
+      else { return nil }
+      return HoverTarget(kind: kind, range: range, anchor: rect(for: range))
+    }
+
+    private var hoverArea: NSTrackingArea?
+
+    open override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      if let hoverArea { removeTrackingArea(hoverArea) }
+      let area = NSTrackingArea(
+        rect: .zero,
+        options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+        owner: self)
+      addTrackingArea(area)
+      hoverArea = area
+    }
+
+    /// Pointer moves feed the controller's hover (see `HoverTracker`).
+    open override func mouseMoved(with event: NSEvent) {
+      super.mouseMoved(with: event)
+      hover.pointer(over: hoverTarget(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    open override func mouseExited(with event: NSEvent) {
+      super.mouseExited(with: event)
+      hover.pointer(over: nil)
+    }
+
+    /// Where pointer moves go: the controller's tracker.
+    open var hover: HoverTracker { controller.hover }
+
+    open override func menu(for event: NSEvent) -> NSMenu? {
+      if let contextMenuProvider,
+        let target = hoverTarget(at: convert(event.locationInWindow, from: nil)),
+        let menu = contextMenuProvider(target)
+      {
+        return menu
+      }
+      return super.menu(for: event)
+    }
+
     /// A click on a task's box checks or unchecks it.
     open override func mouseDown(with event: NSEvent) {
+      hover.dismiss()
       let point = convert(event.locationInWindow, from: nil)
       let origin = textContainerOrigin
       if let textLayoutManager,

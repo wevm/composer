@@ -928,6 +928,14 @@ Composer.Content(message.document)
   .onHoverNode { node, anchor in hovered = (node, anchor) }   // switches to TextKit
 ```
 
+Details decided in milestone 9:
+
+- `ContentRenderer` (Core) renders blocks as lines of text, so structure shows in a plain `Text`: a list item starts with its marker ("• ", "◦ ", "▪ " by bullet depth, "3. ", "☐ ", "☑ "), deeper levels indented by the width of the markers around them, and each line of a quote starts with a bar ("┃ "). Its attributes are in a composer scope (`ComposerAttributes`: marks, node, token style, decoration, code block), because Linux Foundation has no presentation intents; on Apple platforms marks also set `inlinePresentationIntent`, which `Text` draws, and the SwiftUI layer adds colors for tokens, decoration, and code blocks. Links carry `link`; tokens carry a node URL, `composer-node://node?type=…&label=…&a.<attribute>=…`, which `Composer.Content`'s `OpenURLAction` turns back into the node (`AtomicNode(url:)`).
+- `Composer.Content(document, schema:)` takes the schema for fallback text and token styles: an input's `controller.schema`, or `Schema(plugins:)`. The TextKit path is `ComposerContentView`, a read-only `ComposerTextView`, so it draws exactly as the input does (same mapper, layout fragments, and styles).
+- `.onHoverNode` gets a `HoverTarget?`: the node or link, its document range, and its anchor rect; `nil` when the hover ends. Links are hover targets too, for the link-URL tooltip.
+- `.contextMenuNode` returns `[ComposerMenuItem]` values (title, SF Symbol, destructive, action) rather than SwiftUI views, because the menu is the native one of the TextKit view (`NSMenu` from `menu(for:)`, `UIMenu` from a `UIContextMenuInteraction`), which can't host SwiftUI content. No items means no menu, and the standard menu shows elsewhere.
+- Hover intent is a pure state machine (`HoverIntent`, tested on Linux) run by a `HoverTracker`: 500 ms to open; leaving starts the 150 ms grace period, which hovering the card (`card(isHovered:)`) suspends; moving to another target shows it after its own 500 ms, so crossing text toward a neighbor doesn't flicker. A click dismisses. The input's tracker is `ComposerController.hover`; each content view has its own. Pointer moves come from a tracking area on macOS and `UIHoverGestureRecognizer` on iPad.
+
 ## Accessibility and platform features
 
 - Each node plugin supplies `accessibilityLabel(for:)`, which VoiceOver reads, for example "mention, Tom".
