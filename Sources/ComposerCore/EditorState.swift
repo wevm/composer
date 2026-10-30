@@ -17,8 +17,9 @@ public struct EditorState: Sendable, Equatable {
   }
 
   /// The document. Prefer the editing methods (`replace`, `insert`, …): they
-  /// report exactly what changed, so engines touch only that. Assigning or
-  /// mutating the document directly is reported as replacing all of it.
+  /// report exactly what they touch. Assigning or mutating the document
+  /// directly is reported as the smallest replacement that turns the old
+  /// linear form into the new one.
   public var document: Document {
     get { storage.document }
     _modify {
@@ -28,8 +29,8 @@ public struct EditorState: Sendable, Equatable {
       } else {
         let old = storage.document
         yield &storage.document
-        if storage.document != old {
-          record(0..<old.length, length: storage.document.length, mapSelection: false)
+        if storage.document != old, let edit = old.difference(to: storage.document) {
+          record(edit.range, length: edit.length, mapSelection: false)
         }
       }
     }
@@ -112,6 +113,12 @@ public struct EditorState: Sendable, Equatable {
       Changeset.Edit(range: .init(offsets: edited), replacementLength: length))
     storage.tracking!.dirty.apply(edited, length: length, markDirty: true)
     storage.tracking!.pass.apply(edited, length: length, markDirty: false)
+  }
+
+  /// Takes `other`'s plugin state, for restoring a snapshot.
+  mutating func copyPluginState(from other: EditorState) {
+    makeUnique()
+    storage.pluginState = other.storage.pluginState
   }
 
   var tracking: Tracking? {

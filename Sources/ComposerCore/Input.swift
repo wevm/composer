@@ -1,0 +1,204 @@
+// Text input, as engines report it. Engines route their text view's input
+// here instead of editing their text storage, so every platform edits the
+// document the same way, and Core tests drive the same paths without a text
+// view.
+
+/// Where pasted content comes from.
+public enum PasteSource: Sendable, Hashable {
+  case plainText(String)
+}
+
+extension ComposerController {
+  /// Inserts text, as typed or committed by an input method, over `range`,
+  /// or else over the marked text, or else over the selection. It ends any
+  /// composition.
+  public func insertText(_ text: String, replacing range: DocumentRange? = nil) {
+    let isTyping =
+      range == nil && state.markedText == nil && state.selection.isCollapsed && text.count == 1
+      && text != "\n"
+    update(undo: isTyping ? .typing : .register) { state in
+      let target = range ?? state.markedText?.range ?? state.selection.range
+      state.markedText = nil
+      state.insert(text, at: Selection(target))
+    }
+  }
+
+  /// Sets the IME composition: `text` replaces `range`, or else the current
+  /// marked text, or else the selection, and becomes the marked text, with
+  /// the selection at `selectedRange` within it. Empty text ends the
+  /// composition. Transforms wait until it ends.
+  public func setMarkedText(
+    _ text: String, selectedRange: Range<Int>, replacing range: DocumentRange? = nil
+  ) {
+    update { state in
+      let target = range ?? state.markedText?.range ?? state.selection.range
+      let lower = target.lowerBound.offset
+      state.replace(
+        target,
+        with: text.isEmpty ? [] : [.text(text, marks: state.document.marks(at: target.lowerBound))])
+      let length = text.utf16.count
+      if length == 0 {
+        state.markedText = nil
+        state.selection = .caret(lower)
+        return
+      }
+      let selected =
+        min(
+          max(selectedRange.lowerBound, 0), length)..<min(
+          max(selectedRange.upperBound, selectedRange.lowerBound, 0), length)
+      state.markedText = MarkedText(
+        range: Position(lower)..<Position(lower + length), selectedRange: selected)
+      state.selection = Selection(
+        anchor: Position(lower + selected.lowerBound), head: Position(lower + selected.upperBound))
+    }
+  }
+
+  /// Commits the marked text as it is.
+  public func unmarkText() {
+    guard state.markedText != nil else { return }
+    update { $0.markedText = nil }
+  }
+
+  /// Deletes the selection, or else the character or node before the caret.
+  /// At the start of a text block, it joins the block to the previous one.
+  public func deleteBackward() {
+    update { state in
+      state.markedText = nil
+      let range = state.selection.range
+      if !range.isEmpty {
+        state.delete(range)
+        return
+      }
+      let offset = range.lowerBound.offset
+      guard offset > 0 else { return }
+      state.delete(Position(state.document.boundary(before: offset))..<range.lowerBound)
+    }
+  }
+
+  /// Deletes the selection, or else the character or node after the caret.
+  /// At the end of a text block, it joins the next block to it.
+  public func deleteForward() {
+    update { state in
+      state.markedText = nil
+      let range = state.selection.range
+      if !range.isEmpty {
+        state.delete(range)
+        return
+      }
+      let offset = range.lowerBound.offset
+      guard offset < state.document.length else { return }
+      state.delete(range.lowerBound..<Position(state.document.boundary(after: offset)))
+    }
+  }
+
+  /// Replaces the selection with a new text block: splits the block at the
+  /// caret (in a code block, inserts a line break).
+  public func insertNewline() {
+    update { state in
+      state.markedText = nil
+      let range = state.selection.range
+      if !range.isEmpty { state.delete(range) }
+      state.splitBlock(at: range.lowerBound)
+      state.selection = .caret(range.lowerBound.offset + 1)
+    }
+  }
+
+  /// Inserts a line break within the text block.
+  public func insertLineBreak() {
+    insertText("\n")
+  }
+
+  /// Pastes over the selection. Plain text is inserted as text; plugins that
+  /// map paste (markdown, rich text) come later.
+  public func paste(_ source: PasteSource) {
+    switch source {
+    case .plainText(let text):
+      let text = Normalizer.lineEndings(text)
+      guard !text.isEmpty else { return }
+      update { state in
+        let target = state.markedText?.range ?? state.selection.range
+        state.markedText = nil
+        state.insert(text, at: Selection(target))
+      }
+    }
+  }
+
+  /// Handles a key press the way every engine does: the keymap first, then
+  /// the default action for the key, if it has one. Returns whether the key
+  /// was handled; if not, the engine's text system handles it (caret
+  /// movement, for example).
+  ///
+  /// The default actions: ↩ inserts a new block, ⇧↩ a line break, ⌫ and ⌦
+  /// delete, and ⇥ inserts a tab.
+  @discardableResult
+  public func handleKeyPress(_ key: Key, modifiers: KeyModifiers = []) -> Bool {
+    if handleKey(key, modifiers: modifiers) { return true }
+    switch (key, modifiers) {
+    case (.return, []): insertNewline()
+    case (.return, [.shift]): insertLineBreak()
+    case (.delete, []), (.delete, [.shift]): deleteBackward()
+    case (.forwardDelete, []): deleteForward()
+    case (.tab, []): insertText("\t")
+    default: return false
+    }
+    return true
+  }
+}
+
+extension Document {
+  /// The position one character or node before `offset`: the start of the
+  /// grapheme cluster before it within its text run, or the separator before
+  /// a text block's start.
+  public func boundary(before offset: Int) -> Int {
+    guard let leaf = locate(offset) else { return max(offset - 1, 0) }
+    let local = offset - leaf.start
+    guard local > 0 else { return offset - 1 }
+    let (text, start) = run(in: leaf, containing: local - 1)
+    guard let text else { return offset - 1 }
+    var position = 0
+    var previous = 0
+    for character in text {
+      if start + position >= local { break }
+      previous = position
+      position += character.utf16.count
+    }
+    return leaf.start + start + previous
+  }
+
+  /// The position one character or node after `offset`.
+  public func boundary(after offset: Int) -> Int {
+    guard let leaf = locate(offset) else { return offset }
+    let local = offset - leaf.start
+    guard local < leaf.length else { return min(offset + 1, length) }
+    let (text, start) = run(in: leaf, containing: local)
+    guard let text else { return offset + 1 }
+    var position = 0
+    for character in text {
+      position += character.utf16.count
+      if start + position > local { break }
+    }
+    return leaf.start + start + position
+  }
+
+  /// The text of the run holding unit `local` of a text block, and where the
+  /// run starts; `nil` text for a node.
+  private func run(in leaf: LeafLocation, containing local: Int) -> (String?, Int) {
+    switch block(at: leaf.path) {
+    case .codeBlock(_, let text):
+      return (text, 0)
+    case .paragraph(let inlines):
+      var start = 0
+      for inline in inlines {
+        let length = inline.length
+        if local < start + length {
+          if case .text(let text, _) = inline { return (text, start) }
+          return (nil, start)
+        }
+        start += length
+      }
+      return (nil, start)
+    default:
+      return (nil, 0)
+    }
+  }
+}

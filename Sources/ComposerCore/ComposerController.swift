@@ -14,9 +14,18 @@ public final class ComposerController {
   /// transform never converges; the update stops there and reports it.
   @ObservationIgnored public var maxTransformPasses = 32
 
+  /// The text view showing this composer. Every update's changeset is
+  /// applied to it.
+  @ObservationIgnored public weak var engine: (any TextEngine)?
+  /// Where updates register undo. Engines set their view's `UndoManager`.
+  @ObservationIgnored public var undoManager: (any UndoRegistrar)? {
+    didSet { undo = UndoState() }
+  }
+
   @ObservationIgnored private var bus = CommandBus()
   /// Ranges edited while marked text existed, for when the composition ends.
   @ObservationIgnored private var deferredDirty = DirtyRanges()
+  @ObservationIgnored var undo = UndoState()
 
   public convenience init(
     _ state: EditorState = EditorState(), @PluginBuilder plugins: () -> [any ComposerPlugin]
@@ -44,19 +53,29 @@ public final class ComposerController {
   ///    reached. They are paused while marked text exists, and then run on
   ///    everything edited during the composition once it ends.
   /// 3. The changeset reports the edits and the selection before and after.
+  ///
+  /// An update that changes the document registers undo with `undoManager`.
   @discardableResult
   public func update(_ body: (inout EditorState) -> Void) -> Changeset {
-    var state = self.state
+    update(undo: .register, body)
+  }
+
+  @discardableResult
+  func update(
+    undo behavior: UndoBehavior, runsTransforms: Bool = true, _ body: (inout EditorState) -> Void
+  ) -> Changeset {
+    let before = self.state
+    var state = before
     let selectionBefore = state.selection
     state.tracking = EditorState.Tracking(dirty: deferredDirty)
     deferredDirty.removeAll()
     body(&state)
     var passes = 0
     var reachedLimit = false
-    if state.markedText == nil {
-      (passes, reachedLimit) = runTransforms(&state)
-    } else {
+    if state.markedText != nil {
       deferredDirty = state.tracking!.dirty
+    } else if runsTransforms {
+      (passes, reachedLimit) = runTransforms(&state)
     }
     let edits = state.tracking!.edits
     state.tracking = nil
@@ -67,9 +86,12 @@ public final class ComposerController {
       return Changeset(selectionBefore: selectionBefore, selectionAfter: selectionBefore)
     }
     self.state = state
-    return Changeset(
+    let changeset = Changeset(
       edits: edits, selectionBefore: selectionBefore, selectionAfter: state.selection,
       transformPasses: passes, reachedTransformLimit: reachedLimit)
+    recordUndo(behavior, before: before, changeset)
+    engine?.apply(changeset, from: state)
+    return changeset
   }
 
   private func runTransforms(_ state: inout EditorState) -> (passes: Int, reachedLimit: Bool) {
@@ -173,6 +195,20 @@ public final class ComposerController {
   /// Inserts a text run or node at the selection.
   public func insert(_ inline: Inline) {
     update { $0.insert([inline], over: $0.selection.range) }
+  }
+
+  /// Restores a snapshot, such as for undo: its document (as the smallest
+  /// edit), selection, and plugin state. Transforms don't run, so undoing a
+  /// transform's rewrite doesn't redo it, and nothing registers undo.
+  @discardableResult
+  public func restore(_ snapshot: EditorState) -> Changeset {
+    deferredDirty.removeAll()
+    return update(undo: .none, runsTransforms: false) { state in
+      state.document = snapshot.document
+      state.selection = snapshot.selection
+      state.markedText = nil
+      state.copyPluginState(from: snapshot)
+    }
   }
 
   /// Replaces the document and puts the caret at its end.
