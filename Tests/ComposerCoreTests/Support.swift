@@ -16,11 +16,6 @@ struct SeededGenerator: RandomNumberGenerator {
   }
 }
 
-extension NodeType {
-  static let mention: NodeType = "mention"
-  static let hashtag: NodeType = "hashtag"
-}
-
 /// Mentions as directives (the default codec) and hashtags as plain `#tag`
 /// (a custom codec), as the trigger plugins will register them.
 let testSchema = Schema([

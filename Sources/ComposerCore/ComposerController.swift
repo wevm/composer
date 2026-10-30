@@ -13,8 +13,13 @@ public final class ComposerController {
     didSet {
       let isEmpty = state.document.isEmpty
       if isEmpty != self.isEmpty { self.isEmpty = isEmpty }
+      let session = state[Suggestions.sessionKey]
+      if session != suggestionSession { suggestionSession = session }
     }
   }
+  /// The open suggestion session, if any (see `suggestions`). Observed on
+  /// its own, so a suggestion list is invalidated only while it is open.
+  public private(set) var suggestionSession: SuggestionSession?
   /// Whether the document is empty (see `Document.isEmpty`). Observed on its
   /// own, so a placeholder is invalidated only when it appears or goes.
   public private(set) var isEmpty: Bool
@@ -25,6 +30,12 @@ public final class ComposerController {
   @ObservationIgnored public let schema: Schema
   @ObservationIgnored public let transforms: [NodeTransform]
   @ObservationIgnored let transientState: [String]
+  @ObservationIgnored let stateHooks: [StateHook]
+  @ObservationIgnored let didUpdate: [@MainActor @Sendable (ComposerController, Changeset) -> Void]
+  /// The suggestion triggers, by character.
+  @ObservationIgnored let triggers: [Trigger]
+  /// Updates while async suggestion results are fetched.
+  @ObservationIgnored var suggestionTask: (key: SuggestionRequest, task: Task<Void, Never>)?
   /// Colors code blocks, if a plugin provides one.
   @ObservationIgnored public let codeHighlighter: (any CodeHighlighter)?
   /// The most transform passes one update runs. Reaching it means a
@@ -59,6 +70,14 @@ public final class ComposerController {
     self.transforms = registry.transforms
     self.codeHighlighter = registry.codeHighlighter
     self.transientState = registry.transientState
+    if registry.slashCommandsEnabled {
+      registry.addTrigger(SlashCommands.trigger(registry.slashCommands))
+    }
+    if !registry.triggers.isEmpty { Suggestions.install(in: &registry) }
+    self.stateHooks = registry.stateHooks
+    self.didUpdate = registry.didUpdate
+    self.triggers = registry.triggers
+    self.suggestionSession = state[Suggestions.sessionKey]
     self.keymap = Keymap(registry.keyBindings)
     for registration in registry.commandHandlers { _ = bus.add(registration) }
   }
@@ -97,6 +116,7 @@ public final class ComposerController {
     } else if runsTransforms {
       (passes, reachedLimit) = runTransforms(&state)
     }
+    for hook in stateHooks { hook.body(&state) }
     let edits = state.tracking!.edits
     state.tracking = nil
     // Moving the caret ends the stored marks and transient plugin state,
@@ -122,6 +142,7 @@ public final class ComposerController {
       transformPasses: passes, reachedTransformLimit: reachedLimit)
     recordUndo(behavior, before: before, changeset)
     engine?.apply(changeset, from: state)
+    for observer in didUpdate { observer(self, changeset) }
     return changeset
   }
 

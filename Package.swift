@@ -10,6 +10,7 @@ let nativeEngines: [Target.Dependency] = [
 
 let package = Package(
   name: "Composer",
+  defaultLocalization: "en",
   platforms: [.iOS(.v26), .macOS(.v26)],
   products: [
     .library(name: "ComposerCore", targets: ["ComposerCore"]),
@@ -24,7 +25,8 @@ let package = Package(
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.19.7")
   ],
   targets: [
-    .target(name: "ComposerCore"),
+    // The String Catalog holds the VoiceOver labels of Core's plugins.
+    .target(name: "ComposerCore", resources: [.process("Resources")]),
     // Internal: TextKit 2 shared by the UIKit and AppKit engines.
     .target(name: "ComposerTextKit", dependencies: ["ComposerCore"]),
     .target(name: "ComposerUIKit", dependencies: ["ComposerCore", "ComposerTextKit"]),

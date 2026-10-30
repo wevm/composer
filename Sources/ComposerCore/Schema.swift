@@ -40,22 +40,39 @@ public struct Schema: Sendable {
   public func fallbackText(_ node: AtomicNode) -> String {
     nodes[node.type]?.fallbackText(node) ?? node.label
   }
+
+  public func tokenStyle(_ node: AtomicNode) -> TokenStyle {
+    nodes[node.type]?.tokenStyle(node) ?? .standard
+  }
+
+  public func accessibilityLabel(_ node: AtomicNode) -> String {
+    nodes[node.type]?.accessibilityLabel(node) ?? fallbackText(node)
+  }
 }
 
 /// A node type and its codecs.
 public struct NodeSpec: Sendable {
   public var type: NodeType
   public var markdown: MarkdownNodeCodec
-  /// The node's fallback text, for example `"@tom"` for a mention.
+  /// The node's fallback text, for example `"@tom"` for a mention. Tokens
+  /// render as it, styled.
   public var fallbackText: @Sendable (AtomicNode) -> String
+  /// How the token's text is styled.
+  public var tokenStyle: @Sendable (AtomicNode) -> TokenStyle
+  /// What VoiceOver reads for the token, for example "mention, Tom".
+  public var accessibilityLabel: @Sendable (AtomicNode) -> String
 
   public init(
     _ type: NodeType, markdown: MarkdownNodeCodec? = nil,
-    fallbackText: @escaping @Sendable (AtomicNode) -> String = { $0.label }
+    fallbackText: @escaping @Sendable (AtomicNode) -> String = { $0.label },
+    tokenStyle: @escaping @Sendable (AtomicNode) -> TokenStyle = { _ in .standard },
+    accessibilityLabel: (@Sendable (AtomicNode) -> String)? = nil
   ) {
     self.type = type
     self.markdown = markdown ?? .directive(name: type.rawValue)
     self.fallbackText = fallbackText
+    self.tokenStyle = tokenStyle
+    self.accessibilityLabel = accessibilityLabel ?? { "\(type.rawValue), \($0.label)" }
   }
 
   /// The same node type with another markdown codec.
@@ -102,4 +119,35 @@ public struct MarkdownNodeCodec: Sendable {
     }
     return MarkdownNodeCodec(kind: .custom(triggers: scalars, encode: encode, decode: decode))
   }
+}
+
+/// How a token's text is styled. Colors are semantic, so the engines map
+/// them to the platform's: the accent is the view's tint.
+public struct TokenStyle: Sendable, Hashable {
+  public enum Color: Sendable, Hashable {
+    case accent
+    case primary
+    case secondary
+    /// sRGB components, 0 to 1.
+    case rgb(red: Double, green: Double, blue: Double)
+  }
+
+  public var foreground: Color?
+  public var background: Color?
+  /// The background's opacity.
+  public var backgroundOpacity: Double
+  public var isBold: Bool
+
+  public init(
+    foreground: Color? = .accent, background: Color? = .accent, backgroundOpacity: Double = 0.14,
+    isBold: Bool = false
+  ) {
+    self.foreground = foreground
+    self.background = background
+    self.backgroundOpacity = backgroundOpacity
+    self.isBold = isBold
+  }
+
+  /// The accent color on a light accent background.
+  public static let standard = TokenStyle()
 }

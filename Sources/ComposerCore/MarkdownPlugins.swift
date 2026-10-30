@@ -84,6 +84,13 @@ public struct MarkdownLists: ComposerPlugin {
         Structure.wrapInList(document, at: location, kind: kind)
       }
     }
+    registry.addSlashCommand(
+      SlashCommand("list", summary: "Bulleted list") { _, controller in
+        MarkdownSupport.restructureCaretBlock(controller) {
+          Structure.wrapInList($0, at: $1, kind: .bullet)
+        }
+        return .perform
+      })
     MarkdownSupport.addBlockKey(.return, "markdown.list.return", in: &registry) { state in
       guard let (location, caret) = MarkdownSupport.caretBlock(state),
         Structure.item(of: location) != nil,
@@ -181,6 +188,11 @@ public struct MarkdownQuotes: ComposerPlugin {
         Structure.wrapInQuote(document, at: location)
       }
     }
+    registry.addSlashCommand(
+      SlashCommand("quote", summary: "Quote") { _, controller in
+        MarkdownSupport.restructureCaretBlock(controller) { Structure.wrapInQuote($0, at: $1) }
+        return .perform
+      })
     MarkdownSupport.addBlockKey(.return, "markdown.quote.return", in: &registry) { state in
       guard let (location, caret) = MarkdownSupport.caretBlock(state),
         location.range.isEmpty, Structure.quote(of: location) != nil,
@@ -212,6 +224,21 @@ public struct MarkdownCodeBlocks: ComposerPlugin {
   public func register(in registry: inout PluginRegistry) {
     MarkdownSupport.registerShared(in: &registry)
     if let highlighter { registry.codeHighlighter = highlighter }
+    registry.addSlashCommand(
+      SlashCommand("code", summary: "Code block") { _, controller in
+        MarkdownSupport.restructureCaretBlock(controller) { document, location in
+          guard case .paragraph(let inlines) = document.block(at: location.path) else {
+            return nil
+          }
+          let text = inlines.map { inline -> String in
+            if case .text(let text, _) = inline { return text }
+            return ""
+          }.joined()
+          return Structure.replace(
+            document, at: location, with: [.codeBlock(language: nil, text: text)])
+        }
+        return .perform
+      })
     MarkdownSupport.addBlockKey(
       .return, "markdown.code.return", revertible: true, in: &registry
     ) { state in
@@ -368,6 +395,20 @@ enum MarkdownSupport {
     guard let edit = state.tracking?.edits.last else { return false }
     return edit.replacementLength > 0
       && edit.range.lowerBound.offset + edit.replacementLength == caret
+  }
+
+  /// Restructures the text block at the caret, keeping the caret's offset.
+  @MainActor static func restructureCaretBlock(
+    _ controller: ComposerController, _ body: (Document, BlockLocation) -> Document?
+  ) {
+    guard let location = controller.document.location(of: controller.selection.head),
+      let document = body(controller.document, location)
+    else { return }
+    let caret = controller.selection.head.offset
+    controller.update { state in
+      state.document = document
+      state.selection = .caret(min(caret, document.length))
+    }
   }
 
   /// The text block holding a collapsed selection, and the caret.

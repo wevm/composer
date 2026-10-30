@@ -31,6 +31,16 @@ public struct PluginRegistry: Sendable {
   /// marks: an update that moves the selection outside a composition
   /// clears it, unless the update set it.
   public internal(set) var transientState: [String] = []
+  public internal(set) var stateHooks: [StateHook] = []
+  var didUpdate: [@MainActor @Sendable (ComposerController, Changeset) -> Void] = []
+  /// Suggestion triggers (see `Trigger`), in registration order.
+  public internal(set) var triggers: [Trigger] = []
+  /// Slash commands, from the slash command plugin and others (the
+  /// markdown plugins add `/quote`, `/code`, and `/list`).
+  public internal(set) var slashCommands: [SlashCommand] = []
+  /// Whether slash commands are on: their trigger is added at the end of
+  /// installation, so it sees every plugin's commands.
+  public var slashCommandsEnabled = false
   /// Colors code blocks (see `MarkdownCodeBlocks`).
   public var codeHighlighter: (any CodeHighlighter)?
 
@@ -49,6 +59,37 @@ public struct PluginRegistry: Sendable {
     _ name: String, _ body: @escaping @Sendable (inout EditorState, DocumentRange) -> Void
   ) {
     transforms.append(NodeTransform(name, body))
+  }
+
+  /// Adds a hook that runs at the end of every update, after transforms,
+  /// including updates that only move the selection. Hooks derive plugin
+  /// state from the document and selection, such as the open suggestion
+  /// session; they shouldn't edit the document.
+  public mutating func addStateHook(
+    _ name: String, _ body: @escaping @Sendable (inout EditorState) -> Void
+  ) {
+    guard !stateHooks.contains(where: { $0.name == name }) else { return }
+    stateHooks.append(StateHook(name: name, body: body))
+  }
+
+  /// Adds an observer called after every update that changes the state,
+  /// once the engine has applied it. The `didChange` lifecycle hook.
+  public mutating func onDidUpdate(
+    _ body: @escaping @MainActor @Sendable (ComposerController, Changeset) -> Void
+  ) {
+    didUpdate.append(body)
+  }
+
+  /// Adds a suggestion trigger. A later trigger for the same character
+  /// replaces the earlier one.
+  public mutating func addTrigger(_ trigger: Trigger) {
+    triggers.removeAll { $0.character == trigger.character }
+    triggers.append(trigger)
+  }
+
+  public mutating func addSlashCommand(_ command: SlashCommand) {
+    slashCommands.removeAll { $0.name == command.name }
+    slashCommands.append(command)
   }
 
   /// Makes a plugin state key transient (see `transientState`).
@@ -71,6 +112,12 @@ public struct PluginRegistry: Sendable {
   public mutating func install(_ plugins: [any ComposerPlugin]) {
     for plugin in plugins { plugin.register(in: &self) }
   }
+}
+
+/// A hook run at the end of every update (see `PluginRegistry.addStateHook`).
+public struct StateHook: Sendable {
+  public var name: String
+  public var body: @Sendable (inout EditorState) -> Void
 }
 
 /// A rewrite that runs during every update on the text blocks edited since

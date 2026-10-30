@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hashtag, %@" : {
+      "comment" : "VoiceOver label of a hashtag token: the tag.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "hashtag, %@" } }
+      }
+    },
+    "mention, %@" : {
+      "comment" : "VoiceOver label of a mention token: the name.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "mention, %@" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
