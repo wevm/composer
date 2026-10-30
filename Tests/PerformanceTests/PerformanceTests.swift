@@ -77,10 +77,46 @@
       XCTAssertLessThan(median, .milliseconds(100), "median paste \(median)")
     }
 
-    /// Creating a text view for a chat-sized document, through its first
-    /// layout in a window.
+    /// Creating a composer and laying it out in a window, as a chat screen
+    /// mounts its input: empty, and restoring a short draft.
     @MainActor func testMountIsUnder5Milliseconds() {
+      let draft = MarkdownCodec().parse(
+        "Restoring a **draft** with a [link](https://wevm.dev) and `code`, about the length "
+          + "of a typical message, which wraps onto a second line.")
+      for (name, document) in [("empty", Document.empty), ("draft", draft)] {
+        let median = mountTime(name: "mount, \(name)") {
+          ComposerTextView(
+            controller: ComposerController(EditorState(document: document)), frame: $0)
+        }
+        XCTAssertLessThan(median, .milliseconds(5), "median mount (\(name)) \(median)")
+      }
+    }
+
+    /// With a 2k-character document, layout dominates mounting, and a plain
+    /// TextKit 2 `NSTextView` showing the same text is the floor: the
+    /// composer must stay close to it.
+    @MainActor func testMountOfAChatSizedDocumentStaysNearTextKit() {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
+      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      let plain = mountTime(name: "mount 2k, plain NSTextView") { frame in
+        let view = NSTextView(usingTextLayoutManager: true)
+        view.frame = frame
+        view.textStorage?.setAttributedString(text)
+        return view
+      }
+      let composer = mountTime(name: "mount 2k, composer") {
+        ComposerTextView(
+          controller: ComposerController(EditorState(document: document)), frame: $0)
+      }
+      XCTAssertLessThan(
+        composer, plain * 1.25 + .milliseconds(1), "composer \(composer), plain \(plain)")
+    }
+
+    /// The median time to create a view, add it to a window, and lay out
+    /// its viewport, after warm-up.
+    @MainActor private func mountTime(
+      name: String, _ make: (NSRect) -> NSTextView
+    ) -> Duration {
       let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
         backing: .buffered, defer: false)
@@ -88,65 +124,20 @@
       defer { window.close() }
       var samples: [Duration] = []
       for _ in 0..<30 {
-        let controller = ComposerController(EditorState(document: document))
-        var textView: ComposerTextView?
+        var mounted: NSTextView?
         samples.append(
           ContinuousClock().measure {
-            let view = ComposerTextView(
-              controller: controller, frame: window.contentView!.bounds)
+            let view = make(window.contentView!.bounds)
             window.contentView!.addSubview(view)
-            layOut(view)
-            textView = view
+            view.textLayoutManager?.textViewportLayoutController.layoutViewport()
+            view.layoutSubtreeIfNeeded()
+            mounted = view
           })
-        textView?.removeFromSuperview()
+        mounted?.removeFromSuperview()
       }
       let (median, p95) = statistics(samples.dropFirst(5))
-      report("mount", median: median, p95: p95)
-      XCTAssertLessThan(median, .milliseconds(5), "median mount \(median)")
-    }
-
-    /// Where mount time goes (diagnostic).
-    @MainActor func testMountBreakdown() {
-      let document = MarkdownCodec().parse(Self.chatMarkdown)
-      let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
-        backing: .buffered, defer: false)
-      window.isReleasedWhenClosed = false
-      defer { window.close() }
-      let bounds = window.contentView!.bounds
-      func median(_ name: String, _ body: () -> Void) {
-        var samples: [Duration] = []
-        for _ in 0..<25 { samples.append(ContinuousClock().measure(body)) }
-        let (median, p95) = statistics(samples.dropFirst(5))
-        report(name, median: median, p95: p95)
-      }
-      median("standard styles") { _ = TextStyles.standard }
-      median("map chat document") {
-        _ = AttributeMapper(styles: .standard).attributedString(for: document)
-      }
-      median("plain NSTextView, TextKit 2, laid out") {
-        let view = NSTextView(usingTextLayoutManager: true)
-        view.frame = bounds
-        view.textStorage?.setAttributedString(
-          AttributeMapper(styles: .standard).attributedString(for: document))
-        window.contentView!.addSubview(view)
-        view.textLayoutManager?.textViewportLayoutController.layoutViewport()
-        view.layoutSubtreeIfNeeded()
-        view.removeFromSuperview()
-      }
-      median("composer view, empty, no window") {
-        _ = ComposerTextView(controller: ComposerController(), frame: bounds)
-      }
-      let controller = ComposerController(EditorState(document: document))
-      median("composer view, chat document, no window") {
-        _ = ComposerTextView(controller: controller, frame: bounds)
-      }
-      median("composer view, chat document, laid out") {
-        let view = ComposerTextView(controller: controller, frame: bounds)
-        window.contentView!.addSubview(view)
-        layOut(view)
-        view.removeFromSuperview()
-      }
+      report(name, median: median, p95: p95)
+      return median
     }
 
     // MARK: Helpers
