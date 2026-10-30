@@ -10,7 +10,15 @@ struct PlaygroundDemo: View {
     var id: Self { self }
   }
 
-  @State private var controller = ComposerController(plugins: [PluginGroup.markdown])
+  @State private var controller = ComposerController {
+    PluginGroup.markdown
+    MentionsPlugin(source: .static(Self.people))
+    HashtagsPlugin()
+    SlashCommandsPlugin([
+      SlashCommand("shrug", summary: "¯\\_(ツ)_/¯") { _, _ in .replace("¯\\_(ツ)_/¯") }
+    ])
+    EmojiShortcodesPlugin(emoji: Self.emoji)
+  }
   @State private var readout = Readout.markdown
   @State private var isExpanded = false
   @FocusState private var isFocused: Bool
@@ -27,11 +35,15 @@ struct PlaygroundDemo: View {
       Text(
         "Type markdown: **bold**, _italic_, ~~strike~~, `code`, and [links](url) convert as "
           + "you close them, and ⌫ right after undoes it. Start a line with - , 1. , > , or [ ] "
-          + "in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block."
+          + "in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block. Try @to, #tags, "
+          + "/shrug, /quote, and :smile:."
       )
       .font(.callout)
       .foregroundStyle(.secondary)
       Composer.Root(controller) {
+        Composer.Suggestions()
+          .padding(4)
+          .background(.background, in: .rect(cornerRadius: 8))
         Composer.Input("Message", isExpanded: $isExpanded)
           .focused($isFocused)
           .accessibilityIdentifier("composer")
@@ -94,6 +106,19 @@ struct PlaygroundDemo: View {
     }
     return summary
   }
+
+  static let people = [
+    Suggestion(id: "u1", label: "tom", subtitle: "Tom Hill"),
+    Suggestion(id: "u2", label: "tony", subtitle: "Tony Park"),
+    Suggestion(id: "u3", label: "ann", subtitle: "Ann Lee"),
+    Suggestion(id: "u4", label: "zoe", subtitle: "Zoë Adams"),
+  ]
+
+  static let emoji = [
+    Emoji("😄", shortcodes: ["smile"]), Emoji("😏", shortcodes: ["smirk"]),
+    Emoji("👍", shortcodes: ["thumbsup", "+1"]), Emoji("🎉", shortcodes: ["tada"]),
+    Emoji("❤️", shortcodes: ["heart"]), Emoji("🚀", shortcodes: ["rocket"]),
+  ]
 
   static let sample = """
     Composer renders **bold**, _italic_, ~~strikethrough~~, `inline code`, and \
