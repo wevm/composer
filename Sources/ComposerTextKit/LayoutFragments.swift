@@ -144,9 +144,10 @@
 
   extension NSTextLayoutManager {
     /// The task item whose box is at `point`, in text container
-    /// coordinates: the position of its first line, which `toggleTask`
-    /// takes. The box is in the gutter left of the line's text.
-    package func taskBox(at point: CGPoint) -> Position? {
+    /// coordinates: the storage offset of its first line, which mapped to a
+    /// document position is what `toggleTask` takes. The box is in the
+    /// gutter left of the line's text.
+    package func taskBox(at point: CGPoint) -> Int? {
       guard let fragment = textLayoutFragment(for: point) as? DecoratedLayoutFragment,
         case .task? = fragment.decoration.marker, fragment.decoration.isFirstLine,
         let line = fragment.textLineFragments.first,
@@ -160,7 +161,7 @@
       else { return nil }
       let offset = contentManager.offset(
         from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
-      return Position(offset)
+      return offset
     }
 
     private func styles(of fragment: DecoratedLayoutFragment) -> TextStyles { fragment.styles }

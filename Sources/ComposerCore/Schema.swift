@@ -150,4 +150,27 @@ public struct TokenStyle: Sendable, Hashable {
 
   /// The accent color on a light accent background.
   public static let standard = TokenStyle()
+
+  public func foreground(_ color: Color?) -> TokenStyle {
+    var copy = self
+    copy.foreground = color
+    return copy
+  }
+
+  public func background(_ color: Color?, opacity: Double? = nil) -> TokenStyle {
+    var copy = self
+    copy.background = color
+    if let opacity { copy.backgroundOpacity = opacity }
+    return copy
+  }
+
+  public func bold(_ isBold: Bool = true) -> TokenStyle {
+    var copy = self
+    copy.isBold = isBold
+    return copy
+  }
 }
+
+/// Restyles a node type's tokens in one view, over the plugin's style (see
+/// `.composerTextStyle(for:)`).
+public typealias TokenStyleOverride = @Sendable (TokenStyle) -> TokenStyle

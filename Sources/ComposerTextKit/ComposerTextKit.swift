@@ -80,22 +80,8 @@
 #if canImport(UIKit) || canImport(AppKit)
   import ComposerCore
 
-  extension NSRange {
-    /// The storage range of a document range: offsets are the same.
-    package init(_ range: DocumentRange) {
-      self.init(location: range.lowerBound.offset, length: range.length)
-    }
-  }
-
-  extension Range where Bound == Position {
-    /// The document range of a storage range.
-    package init(nsRange range: NSRange) {
-      self = Position(range.location)..<Position(range.location + range.length)
-    }
-  }
-
-  /// Text from storage as document text: attachment characters are dropped
-  /// (tokens don't paste as text).
+  /// Text from storage as document text: attachment characters, which
+  /// tokens with no label draw as, are dropped.
   package func documentText(_ storageText: String) -> String {
     guard storageText.contains("\u{FFFC}") else { return storageText }
     return storageText.replacingOccurrences(of: "\u{FFFC}", with: "")
@@ -103,32 +89,38 @@
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)
-  /// The selection a text view's selected range stands for. Text views don't
-  /// say which end of a selection moved: a change made from the keyboard
-  /// that keeps one end of the previous selection keeps that end as the
-  /// anchor, so ⇧← makes a backward selection. Other selections run forward.
+  /// The selection a text view's selected range stands for, in document
+  /// positions. Text views don't say which end of a selection moved: a
+  /// change made from the keyboard that keeps one end of the previous
+  /// selection keeps that end as the anchor, so ⇧← makes a backward
+  /// selection. Other selections run forward.
+  ///
+  /// A token is one unit drawn as several characters, so a caret the text
+  /// view puts inside one moves to an edge: from the keyboard, the edge in
+  /// the direction it was moving; otherwise, the nearer one.
   package func inferredSelection(
-    _ range: NSRange, previous: Selection, fromKeyboard: Bool
+    _ range: NSRange, previous: Selection, fromKeyboard: Bool, map: StorageMap
   ) -> Selection {
-    let lower = Position(range.location)
-    let upper = Position(range.location + range.length)
+    if range.length == 0 {
+      let rounding: StorageMap.Rounding
+      if fromKeyboard, let token = map.token(containing: range.location) {
+        rounding = previous.head.offset <= token ? .up : .down
+      } else {
+        rounding = .nearest
+      }
+      return .caret(map.document(range.location, rounding: rounding))
+    }
+    let document = map.document(range)
+    let lower = document.lowerBound
+    let upper = document.upperBound
     if fromKeyboard, lower != upper, upper == previous.anchor, lower != previous.anchor {
       return Selection(anchor: upper, head: lower)
     }
     return Selection(lower..<upper)
   }
 
-  /// Text from storage for the clipboard: tokens become their labels.
+  /// Text from storage for the clipboard: tokens are their labels already.
   package func clipboardText(of text: NSAttributedString) -> String {
-    var result = ""
-    text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) {
-      value, run, _ in
-      if let token = value as? TokenAttachment {
-        result += token.label
-      } else {
-        result += documentText((text.string as NSString).substring(with: run))
-      }
-    }
-    return result
+    documentText(text.string)
   }
 #endif

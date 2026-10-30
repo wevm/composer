@@ -25,6 +25,7 @@
       #if canImport(UIKit)
         @Environment(\.composerKeyboardAccessory) private var keyboardAccessory
       #endif
+      @Environment(\.composerTokenStyles) private var tokenStyles
       private let placeholder: LocalizedStringResource?
       private let lines: ClosedRange<Int>
       @Binding private var isExpanded: Bool
@@ -51,14 +52,15 @@
         #if canImport(UIKit)
           InputView(
             controller: controller, placeholder: placeholder.map { String(localized: $0) },
-            lines: lines, isExpanded: isExpanded, keyboardAccessory: keyboardAccessory
+            lines: lines, isExpanded: isExpanded, tokenStyles: tokenStyles,
+            keyboardAccessory: keyboardAccessory
           )
           // A new controller is a new text view.
           .id(ObjectIdentifier(controller))
         #else
           InputView(
             controller: controller, placeholder: placeholder.map { String(localized: $0) },
-            lines: lines, isExpanded: isExpanded
+            lines: lines, isExpanded: isExpanded, tokenStyles: tokenStyles
           )
           .id(ObjectIdentifier(controller))
         #endif
@@ -82,6 +84,48 @@
     return CGSize(width: width, height: fittingHeight())
   }
 
+  /// Token style overrides from `.composerTextStyle(for:)`. Closures don't
+  /// compare, so each override carries a count of the times it was set,
+  /// and the input restyles only when one changes.
+  struct TokenStyles {
+    var overrides: [NodeType: TokenStyleOverride] = [:]
+    var version: [NodeType: Int] = [:]
+  }
+
+  extension EnvironmentValues {
+    @Entry var composerTokenStyles = TokenStyles()
+  }
+
+  /// Counts `.composerTextStyle(for:)` calls, so each is a new version.
+  @MainActor private var tokenStyleCount = 0
+
+  extension View {
+    /// Restyles tokens of a node type in the composers inside, over their
+    /// plugin's style: `.composerTextStyle(for: .mention) { $0.bold() }`.
+    public func composerTextStyle(
+      for type: NodeType, _ style: @escaping TokenStyleOverride
+    ) -> some View {
+      modifier(TokenStyleModifier(type: type, style: style))
+    }
+  }
+
+  private struct TokenStyleModifier: ViewModifier {
+    let type: NodeType
+    let style: TokenStyleOverride
+    /// Fixed for the modifier's life, so re-rendering it doesn't restyle.
+    @State private var version: Int = {
+      tokenStyleCount += 1
+      return tokenStyleCount
+    }()
+
+    func body(content: Content) -> some View {
+      content.transformEnvironment(\.composerTokenStyles) { styles in
+        styles.overrides[type] = style
+        styles.version[type] = version
+      }
+    }
+  }
+
   #if canImport(UIKit)
     extension EnvironmentValues {
       @Entry var composerKeyboardAccessory: AnyView? = nil
@@ -103,10 +147,12 @@
       let placeholder: String?
       let lines: ClosedRange<Int>
       let isExpanded: Bool
+      let tokenStyles: TokenStyles
       let keyboardAccessory: AnyView?
 
       final class Coordinator {
         var accessory: UIHostingController<AnyView>?
+        var tokenStyles: [NodeType: Int] = [:]
       }
 
       func makeCoordinator() -> Coordinator { Coordinator() }
@@ -122,6 +168,10 @@
         RenderCounts.inputUpdates += 1
         if view.lineLimits != lines { view.lineLimits = lines }
         if view.placeholder != placeholder { view.placeholder = placeholder }
+        if tokenStyles.version != context.coordinator.tokenStyles {
+          context.coordinator.tokenStyles = tokenStyles.version
+          view.tokenStyles = tokenStyles.overrides
+        }
         updateKeyboardAccessory(of: view, context.coordinator)
       }
 
@@ -177,6 +227,13 @@
       let placeholder: String?
       let lines: ClosedRange<Int>
       let isExpanded: Bool
+      let tokenStyles: TokenStyles
+
+      final class Coordinator {
+        var tokenStyles: [NodeType: Int] = [:]
+      }
+
+      func makeCoordinator() -> Coordinator { Coordinator() }
 
       func makeNSView(context: Context) -> InputScrollView {
         let scrollView = InputScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 40))
@@ -199,6 +256,10 @@
         guard let textView = scrollView.textView else { return }
         if textView.lineLimits != lines { textView.lineLimits = lines }
         if textView.placeholder != placeholder { textView.placeholder = placeholder }
+        if tokenStyles.version != context.coordinator.tokenStyles {
+          context.coordinator.tokenStyles = tokenStyles.version
+          textView.tokenStyles = tokenStyles.overrides
+        }
       }
 
       func sizeThatFits(

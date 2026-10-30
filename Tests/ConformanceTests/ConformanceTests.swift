@@ -242,6 +242,37 @@
         generator.markdownSession(length: 60), plugins: [PluginGroup.markdown])
     }
 
+    /// Tokens draw as their labels, several characters for one unit: the
+    /// caret steps over them whole, and selections grow to cover them.
+    @Test func tokensAreOneUnitDrawnAsTheirLabel() throws {
+      let mention = AtomicNode(type: .mention, label: "tom", attributes: ["id": "1"])
+      let state = EditorState(
+        document: Document(blocks: [
+          .paragraph([.text("a ", marks: Marks()), .node(mention), .text(" b", marks: Marks())])
+        ]), selection: .caret(0))
+      let plugins: [any ComposerPlugin] = [MentionsPlugin(source: .static(people))]
+      expectConformance(
+        Session {
+          Press(.rightArrow)
+          Press(.rightArrow)
+          Press(.rightArrow)
+          Type("x")
+          Press(.leftArrow)
+          Press(.leftArrow)
+          Press(.rightArrow, modifiers: .shift)
+          Press(.delete)
+          Type("@to")
+          Press(.return)
+          Select(0..<4)
+          Paste(.plainText("z"))
+          Undo()
+        }, from: state, plugins: plugins)
+      let driver = NativeDriver(state, plugins: plugins)
+      let storage: NSTextStorage? = driver.textView.textStorage
+      #expect(try #require(storage).string == "a @tom b")
+      #expect(driver.textView.storageMap.storage(4) == 7)
+    }
+
     @Test func aTaskBoxTogglesItsItem() throws {
       let driver = NativeDriver(
         EditorState(document: MarkdownCodec().parse("- [ ] milk\n- [x] eggs")),
@@ -260,7 +291,7 @@
       let y = fragment.layoutFragmentFrame.minY + line.typographicBounds.midY
       #expect(layout.taskBox(at: CGPoint(x: textStart + 4, y: y)) == nil, "on the text")
       let box = try #require(layout.taskBox(at: CGPoint(x: textStart - 8, y: y)))
-      #expect(box == Position(0))
+      #expect(box == 0)
       #if canImport(AppKit) && !canImport(UIKit)
         // A click there, as AppKit delivers it.
         let origin = driver.textView.textContainerOrigin
@@ -273,7 +304,7 @@
             clickCount: 1, pressure: 1))
         driver.textView.mouseDown(with: event)
       #else
-        driver.controller.run(Command<Position>.toggleTask, box)
+        driver.controller.run(Command<Position>.toggleTask, Position(box))
       #endif
       #expect(driver.controller.markdown == "- [x] milk\n- [x] eggs")
     }
@@ -313,6 +344,8 @@
       if editedMask.contains(.editedCharacters) { edits.append(editedRange) }
     }
   }
+
+  let people = [Suggestion(id: "1", label: "tom"), Suggestion(id: "2", label: "tony")]
 
   /// Uppercases `q`, so sessions see transforms run.
   struct UppercaseQ: ComposerPlugin {

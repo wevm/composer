@@ -69,7 +69,7 @@
       case .select(let range):
         // As the controller does, keep the selection inside the document.
         let length = controller.document.length
-        textView.selectedRange = NSRange(
+        textView.selectedRange = textView.storageMap.storage(
           Position(
             min(range.lowerBound.offset, length))..<Position(
               min(range.upperBound.offset, length)))
@@ -216,7 +216,7 @@
         // As the controller does, keep the selection inside the document.
         let length = controller.document.length
         textView.setSelectedRange(
-          NSRange(
+          textView.storageMap.storage(
             Position(
               min(range.lowerBound.offset, length))..<Position(
                 min(range.upperBound.offset, length))))

@@ -1,11 +1,13 @@
 // Attribute mapping: a document's linear form as an attributed string, one
-// character per unit, so a document position is a text storage offset.
+// character per unit of text, so with no tokens a document position is a
+// text storage offset.
 //
 // - Text blocks are separated by "\n", and a newline inside a paragraph or
 //   code block is "\n" too, so every line is a TextKit paragraph. (One TextKit
 //   paragraph per block would be simpler, but TextKit 2 lays out a paragraph
 //   whole: a 20k-character pasted block took seconds.)
-// - An atomic or unknown inline node is one attachment character (U+FFFC).
+// - An atomic or unknown inline node is one document unit drawn as its label,
+//   styled as a token (see `StorageMap` for the offsets this shifts).
 // - Every character of a line, and the newline after it, carries the line's
 //   paragraph style and `BlockDecoration`, which says which block and line it
 //   is in. Only a block's last line has the space after the block, and the
@@ -25,6 +27,27 @@
     /// A link's destination. Links are styled rather than set as `.link`, so
     /// clicking one while editing places the caret instead of opening it.
     package static let composerLink = NSAttributedString.Key("dev.wevm.composer.link")
+    /// A token's `TokenInfo`, on each character of its label.
+    package static let composerToken = NSAttributedString.Key("dev.wevm.composer.token")
+  }
+
+  /// A token, on its label's characters: what it reads as, for VoiceOver
+  /// and tests. Compared by value.
+  package final class TokenInfo: NSObject, @unchecked Sendable {
+    package let label: String
+    package let accessibilityLabel: String
+
+    package init(label: String, accessibilityLabel: String) {
+      self.label = label
+      self.accessibilityLabel = accessibilityLabel
+    }
+
+    override package func isEqual(_ object: Any?) -> Bool {
+      guard let other = object as? TokenInfo else { return false }
+      return label == other.label && accessibilityLabel == other.accessibilityLabel
+    }
+
+    override package var hash: Int { label.hashValue ^ accessibilityLabel.hashValue }
   }
 
   /// What a text block's layout fragment draws around its text.
@@ -131,58 +154,39 @@
     }
   }
 
-  /// A token: an atomic or unknown node, drawn as its label on a rounded
-  /// background. One attachment character, so it is one document unit.
-  package final class TokenAttachment: NSTextAttachment {
-    package let label: String
-
-    package init(label: String, styles: TextStyles) {
-      self.label = label
-      super.init(data: nil, ofType: nil)
-      let font = styles.base
-      let text = NSAttributedString(
-        string: label, attributes: [.font: font, .foregroundColor: styles.tokenForeground])
-      let textSize = text.size()
-      let padding: CGFloat = 4
-      let size = CGSize(
-        width: ceil(textSize.width) + padding * 2, height: ceil(font.ascender - font.descender))
-      let textOrigin = CGPoint(x: padding, y: (size.height - textSize.height) / 2)
-      let background = styles.tokenBackground
-      #if canImport(UIKit)
-        image = UIGraphicsImageRenderer(size: size).image { _ in
-          background.setFill()
-          UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 4).fill()
-          text.draw(at: textOrigin)
-        }
-      #else
-        nonisolated(unsafe) let drawnText = text
-        image = NSImage(size: size, flipped: true) { rect in
-          background.setFill()
-          NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-          drawnText.draw(at: textOrigin)
-          return true
-        }
-      #endif
-      bounds = CGRect(x: 0, y: font.descender, width: size.width, height: size.height)
-    }
-
-    required init?(coder: NSCoder) {
-      fatalError("TokenAttachment isn't archived")
-    }
-  }
-
   /// Renders documents, or spans of them, into attributed strings. Main
   /// actor, like the text views it serves, so views can share derived fonts.
   @MainActor
   package final class AttributeMapper {
     package let styles: TextStyles
     package let schema: Schema
+    package let tokenStyles: [NodeType: TokenStyleOverride]
     private var fonts: [Int: PlatformFont] = [:]
     private var blockAttributes: [BlockDecoration: [NSAttributedString.Key: Any]] = [:]
 
-    package init(styles: TextStyles, schema: Schema = Schema()) {
+    package init(
+      styles: TextStyles, schema: Schema = Schema(),
+      tokenStyles: [NodeType: TokenStyleOverride] = [:]
+    ) {
       self.styles = styles
       self.schema = schema
+      self.tokenStyles = tokenStyles
+    }
+
+    /// The text a token renders as: its label, never empty.
+    package func tokenText(_ inline: Inline) -> String {
+      let text: String
+      switch inline {
+      case .node(let node): text = schema.fallbackText(node)
+      case .unknown(let node): text = node.text
+      case .text: return ""
+      }
+      return text.isEmpty ? "\u{FFFC}" : text
+    }
+
+    /// The map between a document's positions and its rendering's offsets.
+    package func storageMap(for document: Document) -> StorageMap {
+      StorageMap(document: document) { self.tokenText($0).utf16.count }
     }
 
     /// The whole document.
@@ -286,21 +290,43 @@
             result.append(
               NSAttributedString(string: piece, attributes: self.attributes(attributes, marks)))
           case .node(let node):
-            appendToken(schema.fallbackText(node), attributes, to: result)
+            appendToken(
+              inline,
+              style: tokenStyles[node.type].map { $0(schema.tokenStyle(node)) }
+                ?? schema.tokenStyle(node),
+              accessibilityLabel: schema.accessibilityLabel(node), attributes, to: result)
           case .unknown(let node):
-            appendToken(node.text, attributes, to: result)
+            appendToken(
+              inline, style: .standard, accessibilityLabel: node.text, attributes, to: result)
           }
         }
       }
     }
 
     private func appendToken(
-      _ label: String, _ attributes: [NSAttributedString.Key: Any],
-      to result: NSMutableAttributedString
+      _ inline: Inline, style: TokenStyle, accessibilityLabel: String,
+      _ attributes: [NSAttributedString.Key: Any], to result: NSMutableAttributedString
     ) {
+      let label = tokenText(inline)
       var attributes = attributes
-      attributes[.attachment] = TokenAttachment(label: label, styles: styles)
-      result.append(NSAttributedString(string: "\u{FFFC}", attributes: attributes))
+      if let foreground = style.foreground { attributes[.foregroundColor] = color(foreground) }
+      if let background = style.background {
+        attributes[.backgroundColor] = color(background).withAlphaComponent(
+          style.backgroundOpacity)
+      }
+      if style.isBold { attributes[.font] = font(bold: true, italic: false, code: false) }
+      attributes[.composerToken] = TokenInfo(label: label, accessibilityLabel: accessibilityLabel)
+      result.append(NSAttributedString(string: label, attributes: attributes))
+    }
+
+    private func color(_ color: TokenStyle.Color) -> PlatformColor {
+      switch color {
+      case .accent: styles.tokenForeground
+      case .primary: styles.foreground
+      case .secondary: styles.secondary
+      case .rgb(let red, let green, let blue):
+        PlatformColor(red: red, green: green, blue: blue, alpha: 1)
+      }
     }
 
     private func attributes(

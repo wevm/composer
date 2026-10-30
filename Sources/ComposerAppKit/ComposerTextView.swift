@@ -22,6 +22,11 @@
       didSet { reloadStyles() }
     }
 
+    /// Restyles tokens of a node type, over their plugin's style.
+    public var tokenStyles: [NodeType: TokenStyleOverride] = [:] {
+      didSet { reloadStyles() }
+    }
+
     /// The undo manager updates register with. By default, the window's.
     public var composerUndoManager: UndoManager? {
       didSet { controller.undoManager = undoManager }
@@ -68,6 +73,9 @@
       return label
     }()
     private var mapper: AttributeMapper
+    /// Document positions to storage offsets: tokens draw as several
+    /// characters.
+    package private(set) var storageMap = StorageMap(document: Document()) { _ in 1 }
     private var fragmentProvider: LayoutFragmentProvider
     private let contentStorage: NSTextContentStorage
     /// Set while the view applies a changeset (and during setup), when its
@@ -134,9 +142,10 @@
       isApplying = true
       defer { isApplying = wasApplying }
       ChangesetApplier.load(controller.document, into: textStorage, mapper: mapper)
+      storageMap = mapper.storageMap(for: controller.document)
       renderedMarkedText = nil
       syncMarkedText(controller.state.markedText)
-      setSelectedRange(NSRange(controller.selection.range))
+      setSelectedRange(storageMap.storage(controller.selection.range))
       textDidChangeHeight()
       syncPlaceholder(force: true)
     }
@@ -185,7 +194,8 @@
     }
 
     private func reloadStyles() {
-      mapper = AttributeMapper(styles: textStyles, schema: controller.schema)
+      mapper = AttributeMapper(
+        styles: textStyles, schema: controller.schema, tokenStyles: tokenStyles)
       fragmentProvider = LayoutFragmentProvider(styles: textStyles)
       textLayoutManager?.delegate = fragmentProvider
       typingAttributes = [.font: textStyles.base, .foregroundColor: textStyles.foreground]
@@ -198,9 +208,13 @@
       guard let textStorage else { return }
       isApplying = true
       defer { isApplying = false }
-      ChangesetApplier.apply(changeset, document: state.document, to: textStorage, mapper: mapper)
+      let old = storageMap
+      if !changeset.edits.isEmpty { storageMap = mapper.storageMap(for: state.document) }
+      ChangesetApplier.apply(
+        changeset, document: state.document, to: textStorage, mapper: mapper, old: old,
+        new: storageMap)
       syncMarkedText(state.markedText)
-      let range = NSRange(state.selection.range)
+      let range = storageMap.storage(state.selection.range)
       if selectedRange() != range { setSelectedRange(range) }
       if !changeset.edits.isEmpty {
         syncPlaceholder()
@@ -215,7 +229,7 @@
     }
 
     public func rect(for range: DocumentRange) -> CGRect {
-      rects(for: NSRange(range)).reduce(CGRect.null) { $0.union($1) }
+      rects(for: storageMap.storage(range)).reduce(CGRect.null) { $0.union($1) }
     }
 
     private func rects(for range: NSRange) -> [CGRect] {
@@ -235,7 +249,7 @@
       renderedMarkedText = marked
       textLayoutManager.removeRenderingAttribute(
         .underlineStyle, for: contentManager.documentRange)
-      if let marked, let range = contentManager.textRange(for: NSRange(marked.range)) {
+      if let marked, let range = contentManager.textRange(for: storageMap.storage(marked.range)) {
         textLayoutManager.addRenderingAttribute(
           .underlineStyle, value: NSUnderlineStyle.single.rawValue, for: range)
       }
@@ -259,7 +273,7 @@
 
     open override func insertText(_ string: Any, replacementRange: NSRange) {
       controller.insertText(
-        Self.plainText(string), replacing: Self.documentRange(replacementRange))
+        Self.plainText(string), replacing: documentRange(replacementRange))
     }
 
     open override func setMarkedText(
@@ -271,7 +285,7 @@
         selectedRange.location == NSNotFound
         ? length..<length : selectedRange.location..<NSMaxRange(selectedRange)
       controller.setMarkedText(
-        text, selectedRange: selected, replacing: Self.documentRange(replacementRange))
+        text, selectedRange: selected, replacing: documentRange(replacementRange))
     }
 
     open override func unmarkText() {
@@ -287,7 +301,7 @@
       guard let marked = controller.state.markedText else {
         return NSRange(location: NSNotFound, length: 0)
       }
-      return NSRange(marked.range)
+      return storageMap.storage(marked.range)
     }
 
     /// Every other change AppKit would make to the text (drops, spelling
@@ -301,7 +315,7 @@
       }
       for (range, string) in zip(affectedRanges, replacementStrings).reversed() {
         controller.insertText(
-          documentText(string), replacing: DocumentRange(nsRange: range.rangeValue))
+          documentText(string), replacing: storageMap.document(range.rangeValue))
       }
       return false
     }
@@ -314,7 +328,7 @@
       guard !isApplying else { return }
       let current = controller.selection
       let selection = inferredSelection(
-        selectedRange(), previous: current, fromKeyboard: isHandlingKey)
+        selectedRange(), previous: current, fromKeyboard: isHandlingKey, map: storageMap)
       guard selection != current else { return }
       let wasMarked = hasMarkedText()
       controller.selection = selection
@@ -328,9 +342,9 @@
       let point = convert(event.locationInWindow, from: nil)
       let origin = textContainerOrigin
       if let textLayoutManager,
-        let position = textLayoutManager.taskBox(
+        let offset = textLayoutManager.taskBox(
           at: CGPoint(x: point.x - origin.x, y: point.y - origin.y)),
-        controller.run(Command<Position>.toggleTask, position)
+        controller.run(Command<Position>.toggleTask, Position(storageMap.document(offset)))
       {
         return
       }
@@ -460,7 +474,8 @@
       {
         return mismatch
       }
-      let expected = NSRange(controller.selection.range)
+      if storageMap != mapper.storageMap(for: controller.document) { return "storage map is stale" }
+      let expected = storageMap.storage(controller.selection.range)
       if selectedRange() != expected {
         return "selection \(selectedRange()), expected \(expected)"
       }
@@ -480,8 +495,8 @@
       return ""
     }
 
-    private static func documentRange(_ range: NSRange) -> DocumentRange? {
-      range.location == NSNotFound ? nil : DocumentRange(nsRange: range)
+    private func documentRange(_ range: NSRange) -> DocumentRange? {
+      range.location == NSNotFound ? nil : storageMap.document(range)
     }
   }
 

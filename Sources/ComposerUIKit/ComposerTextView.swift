@@ -25,6 +25,11 @@
       didSet { reloadStyles() }
     }
 
+    /// Restyles tokens of a node type, over their plugin's style.
+    public var tokenStyles: [NodeType: TokenStyleOverride] = [:] {
+      didSet { reloadStyles() }
+    }
+
     /// The undo manager updates register with. By default, the view's own.
     public var composerUndoManager: UndoManager? {
       didSet { controller.undoManager = undoManager }
@@ -80,6 +85,9 @@
     private let placeholderLabel = UILabel()
     private var taskTap: UITapGestureRecognizer?
     private var mapper: AttributeMapper
+    /// Document positions to storage offsets: tokens draw as several
+    /// characters.
+    package private(set) var storageMap = StorageMap(document: Document()) { _ in 1 }
     private var fragmentProvider: LayoutFragmentProvider
     private let contentStorage: NSTextContentStorage
     private let ownUndoManager = UndoManager()
@@ -153,9 +161,10 @@
       isApplying = true
       defer { isApplying = wasApplying }
       ChangesetApplier.load(controller.document, into: textStorage, mapper: mapper)
+      storageMap = mapper.storageMap(for: controller.document)
       renderedMarkedText = nil
       syncMarkedText(controller.state.markedText)
-      selectedRange = NSRange(controller.selection.range)
+      selectedRange = storageMap.storage(controller.selection.range)
       textDidChangeHeight()
       syncPlaceholder()
     }
@@ -201,7 +210,8 @@
     }
 
     private func reloadStyles() {
-      mapper = AttributeMapper(styles: textStyles, schema: controller.schema)
+      mapper = AttributeMapper(
+        styles: textStyles, schema: controller.schema, tokenStyles: tokenStyles)
       fragmentProvider = LayoutFragmentProvider(styles: textStyles)
       textLayoutManager?.delegate = fragmentProvider
       typingAttributes = [.font: textStyles.base, .foregroundColor: textStyles.foreground]
@@ -221,9 +231,13 @@
         inputDelegate?.selectionWillChange(self)
         inputDelegate?.textWillChange(self)
       }
-      ChangesetApplier.apply(changeset, document: state.document, to: textStorage, mapper: mapper)
+      let old = storageMap
+      if !changeset.edits.isEmpty { storageMap = mapper.storageMap(for: state.document) }
+      ChangesetApplier.apply(
+        changeset, document: state.document, to: textStorage, mapper: mapper, old: old,
+        new: storageMap)
       syncMarkedText(state.markedText)
-      let range = NSRange(state.selection.range)
+      let range = storageMap.storage(state.selection.range)
       if selectedRange != range { selectedRange = range }
       if notifies {
         inputDelegate?.textDidChange(self)
@@ -241,7 +255,7 @@
     }
 
     public func rect(for range: DocumentRange) -> CGRect {
-      rects(for: NSRange(range)).reduce(CGRect.null) { $0.union($1) }
+      rects(for: storageMap.storage(range)).reduce(CGRect.null) { $0.union($1) }
     }
 
     private func rects(for range: NSRange) -> [CGRect] {
@@ -262,7 +276,7 @@
       for attribute in [NSAttributedString.Key.underlineStyle, .backgroundColor] {
         textLayoutManager.removeRenderingAttribute(attribute, for: contentManager.documentRange)
       }
-      if let marked, let range = contentManager.textRange(for: NSRange(marked.range)) {
+      if let marked, let range = contentManager.textRange(for: storageMap.storage(marked.range)) {
         textLayoutManager.addRenderingAttribute(
           .underlineStyle, value: NSUnderlineStyle.single.rawValue, for: range)
         textLayoutManager.addRenderingAttribute(
@@ -331,7 +345,7 @@
 
     open override var markedTextRange: UITextRange? {
       guard let marked = controller.state.markedText else { return nil }
-      return textRange(for: NSRange(marked.range))
+      return textRange(for: storageMap.storage(marked.range))
     }
 
     /// Replacements from the input system: autocorrection, the candidate
@@ -339,7 +353,7 @@
     open override func replace(_ range: UITextRange, withText text: String) {
       let range = nsRange(for: range)
       input {
-        controller.insertText(documentText(text), replacing: DocumentRange(nsRange: range))
+        controller.insertText(documentText(text), replacing: storageMap.document(range))
       }
     }
 
@@ -349,7 +363,7 @@
       _ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String
     ) -> Bool {
       if isApplying { return true }
-      controller.insertText(documentText(text), replacing: DocumentRange(nsRange: range))
+      controller.insertText(documentText(text), replacing: storageMap.document(range))
       return false
     }
 
@@ -369,7 +383,7 @@
       guard !isApplying else { return }
       let current = controller.selection
       let selection = inferredSelection(
-        selectedRange, previous: current, fromKeyboard: isHandlingKey)
+        selectedRange, previous: current, fromKeyboard: isHandlingKey, map: storageMap)
       guard selection != current else { return }
       controller.selection = selection
     }
@@ -377,7 +391,7 @@
     // MARK: Taps
 
     /// The task box at a point in the view, if any.
-    private func taskBox(at point: CGPoint) -> Position? {
+    private func taskBox(at point: CGPoint) -> Int? {
       let inset = textContainerInset
       return textLayoutManager?.taskBox(
         at: CGPoint(x: point.x - inset.left, y: point.y - inset.top))
@@ -390,8 +404,8 @@
 
     /// A tap on a task's box checks or unchecks it.
     @objc private func tapTaskBox(_ recognizer: UITapGestureRecognizer) {
-      guard let position = taskBox(at: recognizer.location(in: self)) else { return }
-      controller.run(Command<Position>.toggleTask, position)
+      guard let offset = taskBox(at: recognizer.location(in: self)) else { return }
+      controller.run(Command<Position>.toggleTask, Position(storageMap.document(offset)))
     }
 
     // MARK: Keys
@@ -503,7 +517,8 @@
       {
         return mismatch
       }
-      let expected = NSRange(controller.selection.range)
+      if storageMap != mapper.storageMap(for: controller.document) { return "storage map is stale" }
+      let expected = storageMap.storage(controller.selection.range)
       if selectedRange != expected {
         return "selection \(selectedRange), expected \(expected)"
       }
