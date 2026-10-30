@@ -90,6 +90,10 @@
     /// A keystroke into a plain TextKit 2 text view showing the same text is
     /// measured alternately with it, as the floor (see `bar`).
     @MainActor func testKeystrokeIsUnder4Milliseconds() {
+      expectWithinBars("keystroke") { measureKeystrokes() }
+    }
+
+    @MainActor private func measureKeystrokes() -> [Check] {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       XCTAssertGreaterThan(document.length, 1_800)
       let driver = NativeDriver(EditorState(document: document))
@@ -118,9 +122,10 @@
       report("keystroke, plain text view", median: floor.median, p95: floor.p95)
       // The budget holds for the typical keystroke; the tail gets twice it,
       // for scheduling noise on shared CI machines.
-      XCTAssertLessThan(
-        median, bar(.milliseconds(4), plain: floor.median), "median keystroke \(median)")
-      XCTAssertLessThan(p95, bar(.milliseconds(8), plain: floor.p95), "p95 keystroke \(p95)")
+      return [
+        Check("median keystroke", median, bar(.milliseconds(4), plain: floor.median)),
+        Check("p95 keystroke", p95, bar(.milliseconds(8), plain: floor.p95)),
+      ]
     }
 
     /// A 20,000-character paste into a chat-sized document, through layout
@@ -150,6 +155,11 @@
     /// mounts its input: empty, and restoring a short draft. A plain text
     /// view with the same text is mounted alternately, as the floor.
     @MainActor func testMountIsUnder5Milliseconds() {
+      expectWithinBars("mount") { measureMounts() }
+    }
+
+    @MainActor private func measureMounts() -> [Check] {
+      var checks: [Check] = []
       let draft = MarkdownCodec().parse(
         "Restoring a **draft** with a [link](https://wevm.dev) and `code`, about the length "
           + "of a typical message, which wraps onto a second line.")
@@ -163,10 +173,11 @@
           })
         report("mount, \(name)", median: composer.median, p95: composer.p95)
         report("mount, \(name), plain text view", median: plain.median, p95: plain.p95)
-        XCTAssertLessThan(
-          composer.median, bar(.milliseconds(5), plain: plain.median),
-          "median mount (\(name)) \(composer.median)")
+        checks.append(
+          Check(
+            "median mount (\(name))", composer.median, bar(.milliseconds(5), plain: plain.median)))
       }
+      return checks
     }
 
     /// With a 2k-character document, layout dominates mounting, and a plain
@@ -175,6 +186,10 @@
     /// on a shared CI machine hits both, and the composer also maps the
     /// document, which the plain view gets for free.
     @MainActor func testMountOfAChatSizedDocumentStaysNearTextKit() {
+      expectWithinBars("mount 2k") { measureChatSizedMount() }
+    }
+
+    @MainActor private func measureChatSizedMount() -> [Check] {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       let text = AttributeMapper(styles: .standard).attributedString(for: document)
       let (plain, composer) = mountTimes(
@@ -185,12 +200,58 @@
         })
       report("mount 2k, plain text view", median: plain.median, p95: plain.p95)
       report("mount 2k, composer", median: composer.median, p95: composer.p95)
-      XCTAssertLessThan(
-        composer.median, plain.median * 1.5 + .milliseconds(2),
-        "composer \(composer.median), plain \(plain.median)")
+      return [
+        Check(
+          "median mount 2k (plain \(plain.median))", composer.median,
+          plain.median * 1.5 + .milliseconds(2))
+      ]
     }
 
     // MARK: Helpers
+
+    /// A measurement and the bar it must stay under.
+    struct Check {
+      var name: String
+      var value: Duration
+      var bar: Duration
+
+      init(_ name: String, _ value: Duration, _ bar: Duration) {
+        self.name = name
+        self.value = value
+        self.bar = bar
+      }
+
+      var passes: Bool { value < bar }
+    }
+
+    /// Fails for each check that misses its bar. On the iOS Simulator, where
+    /// shared CI machines stall for tens of milliseconds at a time, a missed
+    /// measurement is taken again once, fresh and still interleaved with the
+    /// plain view, and fails only if it misses in both attempts: noise rarely
+    /// strikes twice, and a real regression misses every time. macOS gets one
+    /// attempt, so its absolute budgets stay binding.
+    @MainActor private func expectWithinBars(_ name: String, _ measure: () -> [Check]) {
+      #if targetEnvironment(simulator)
+        let attempts = 2
+      #else
+        let attempts = 1
+      #endif
+      var missed: [Check] = []
+      for attempt in 1...attempts {
+        missed = measure().filter { !$0.passes }
+        if missed.isEmpty { return }
+        if attempt < attempts {
+          for check in missed {
+            print(
+              "[performance] \(name): \(check.name) \(check.value) missed \(check.bar) "
+                + "on attempt \(attempt); measuring again")
+          }
+        }
+      }
+      for check in missed {
+        XCTFail("\(check.name) \(check.value), over \(check.bar)")
+      }
+    }
 
     /// The bar a measurement must clear: its budget, except on the iOS
     /// Simulator, where a plain text view doing the same work can miss the

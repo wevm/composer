@@ -1006,6 +1006,8 @@ How they are measured (decided in milestone 4): the keystroke budget applies to 
 
 On the iOS Simulator (decided in milestone 5, and accepted), a plain TextKit 2 `UITextView` doing the same work misses some budgets on the shared CI machines: its keystroke p95 is around 14 ms, and an empty mount takes around 3 ms, against 0.4 ms on macOS. So on the simulator each budget applies only where the plain view can meet it; otherwise the composer must stay within 1.5 times the plain view, plus 2 ms, measured interleaved with it in the same run. macOS keeps the absolute budgets. The budgets are for devices, and the composer has not been measured on one yet.
 
+Retries (decided after milestone 10): on the iOS Simulator, the shared runners stall for tens of milliseconds at a time, and these stalls failed the relative keystroke-p95 and 2k-mount checks on runs where the composer hadn't changed. So on the simulator, a check that misses its bar is measured again once in the same run, fresh and still interleaved with the plain view, and fails only if it misses both times. A stall rarely hits two attempts, and a real regression misses every time, so this hides no regression. Each retry is logged as a `[performance]` line. macOS gets a single attempt, so its absolute budgets stay binding. The 20k-paste check is an absolute median under 100 ms on both platforms and isn't retried.
+
 ### CI
 
 - **Linux, every PR:** builds `ComposerCore` and `ComposerTesting`, runs `ComposerCoreTests`, and checks `swift-format`.
