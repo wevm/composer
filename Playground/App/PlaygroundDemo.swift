@@ -10,7 +10,7 @@ struct PlaygroundDemo: View {
     var id: Self { self }
   }
 
-  @State private var controller = ComposerController(plugins: [LiveMarkdown()])
+  @State private var controller = ComposerController(plugins: [PluginGroup.markdown])
   @State private var readout = Readout.markdown
   @State private var isExpanded = false
   @FocusState private var isFocused: Bool
@@ -25,8 +25,9 @@ struct PlaygroundDemo: View {
       }
       .buttonStyle(.bordered)
       Text(
-        "Type markdown: **bold**, _italic_, ~~strike~~, and `code` convert as you close them; "
-          + "start a line with - , 1. , or > for lists and quotes, and [ ] in a list for a task."
+        "Type markdown: **bold**, _italic_, ~~strike~~, `code`, and [links](url) convert as "
+          + "you close them, and ⌫ right after undoes it. Start a line with - , 1. , > , or [ ] "
+          + "in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block."
       )
       .font(.callout)
       .foregroundStyle(.secondary)

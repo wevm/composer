@@ -321,6 +321,22 @@
       if wasMarked, !hasMarkedText() { inputContext?.discardMarkedText() }
     }
 
+    // MARK: Mouse
+
+    /// A click on a task's box checks or unchecks it.
+    open override func mouseDown(with event: NSEvent) {
+      let point = convert(event.locationInWindow, from: nil)
+      let origin = textContainerOrigin
+      if let textLayoutManager,
+        let position = textLayoutManager.taskBox(
+          at: CGPoint(x: point.x - origin.x, y: point.y - origin.y)),
+        controller.run(Command<Position>.toggleTask, position)
+      {
+        return
+      }
+      super.mouseDown(with: event)
+    }
+
     // MARK: Keys
 
     private static let editingKeys: Set<Key> = [.return, .tab, .delete, .forwardDelete]

@@ -24,6 +24,9 @@ public final class ComposerController {
   public var keymap: Keymap
   @ObservationIgnored public let schema: Schema
   @ObservationIgnored public let transforms: [NodeTransform]
+  @ObservationIgnored let transientState: [String]
+  /// Colors code blocks, if a plugin provides one.
+  @ObservationIgnored public let codeHighlighter: (any CodeHighlighter)?
   /// The most transform passes one update runs. Reaching it means a
   /// transform never converges; the update stops there and reports it.
   @ObservationIgnored public var maxTransformPasses = 32
@@ -54,6 +57,8 @@ public final class ComposerController {
     self.isEmpty = state.document.isEmpty
     self.schema = registry.schema
     self.transforms = registry.transforms
+    self.codeHighlighter = registry.codeHighlighter
+    self.transientState = registry.transientState
     self.keymap = Keymap(registry.keyBindings)
     for registration in registry.commandHandlers { _ = bus.add(registration) }
   }
@@ -94,12 +99,16 @@ public final class ComposerController {
     }
     let edits = state.tracking!.edits
     state.tracking = nil
-    // Moving the caret ends the stored marks, unless this update set them;
-    // a composition keeps them until it commits.
-    if state.storedMarks != nil, state.storedMarks == before.storedMarks,
-      state.selection != selectionBefore, state.markedText == nil, before.markedText == nil
-    {
-      state.storedMarks = nil
+    // Moving the caret ends the stored marks and transient plugin state,
+    // unless this update set them; a composition keeps them until it
+    // commits.
+    if state.selection != selectionBefore, state.markedText == nil, before.markedText == nil {
+      if state.storedMarks != nil, state.storedMarks == before.storedMarks {
+        state.storedMarks = nil
+      }
+      for name in transientState where state.pluginState(named: name, equals: before) {
+        state.removePluginState(named: name)
+      }
     }
     if !edits.isEmpty {
       state.selection = state.selection.clamped(to: state.document.length)

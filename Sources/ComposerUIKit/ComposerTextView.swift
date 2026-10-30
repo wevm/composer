@@ -78,6 +78,7 @@
     /// something asks, so a view sized another way never measures.
     private var fitting: (width: CGFloat, height: CGFloat)?
     private let placeholderLabel = UILabel()
+    private var taskTap: UITapGestureRecognizer?
     private var mapper: AttributeMapper
     private var fragmentProvider: LayoutFragmentProvider
     private let contentStorage: NSTextContentStorage
@@ -114,6 +115,9 @@
       configure()
       controller.engine = self
       controller.undoManager = undoManager
+      let taskTap = UITapGestureRecognizer(target: self, action: #selector(tapTaskBox(_:)))
+      addGestureRecognizer(taskTap)
+      self.taskTap = taskTap
       reload()
       isApplying = false
     }
@@ -368,6 +372,26 @@
         selectedRange, previous: current, fromKeyboard: isHandlingKey)
       guard selection != current else { return }
       controller.selection = selection
+    }
+
+    // MARK: Taps
+
+    /// The task box at a point in the view, if any.
+    private func taskBox(at point: CGPoint) -> Position? {
+      let inset = textContainerInset
+      return textLayoutManager?.taskBox(
+        at: CGPoint(x: point.x - inset.left, y: point.y - inset.top))
+    }
+
+    open override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+      if recognizer === taskTap { return taskBox(at: recognizer.location(in: self)) != nil }
+      return super.gestureRecognizerShouldBegin(recognizer)
+    }
+
+    /// A tap on a task's box checks or unchecks it.
+    @objc private func tapTaskBox(_ recognizer: UITapGestureRecognizer) {
+      guard let position = taskBox(at: recognizer.location(in: self)) else { return }
+      controller.run(Command<Position>.toggleTask, position)
     }
 
     // MARK: Keys

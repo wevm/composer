@@ -136,6 +136,21 @@ public struct EditorState: Sendable, Equatable {
     storage.tracking!.pass.apply(edited, length: length, markDirty: false)
   }
 
+  /// Whether the plugin state under `name` is the same as `other`'s.
+  func pluginState(named name: String, equals other: EditorState) -> Bool {
+    switch (storage.pluginState[name], other.storage.pluginState[name]) {
+    case (nil, nil): true
+    case (let a?, let b?): isEqual(a, b)
+    default: false
+    }
+  }
+
+  mutating func removePluginState(named name: String) {
+    guard storage.pluginState[name] != nil else { return }
+    makeUnique()
+    storage.pluginState[name] = nil
+  }
+
   /// Takes `other`'s plugin state, for restoring a snapshot.
   mutating func copyPluginState(from other: EditorState) {
     makeUnique()

@@ -443,6 +443,18 @@ public protocol CodeHighlighter: Sendable {
 }
 ```
 
+Details decided in milestone 7:
+
+- **The plugins** are `MarkdownBold` (`**`, `__`, ⌘B), `MarkdownItalic` (`_`, `*`, ⌘I), `MarkdownStrikethrough` (`~~`, ⌘⇧X), `MarkdownInlineCode` (`` ` ``, ⌘E), `MarkdownLinks` (`[text](url)`), `MarkdownCodeBlocks`, `MarkdownQuotes`, `MarkdownLists`, and `MarkdownTaskLists`. `PluginGroup.markdown` (`.markdown` in the builder) is all of them. Each mark plugin also handles its toggle command, so ⌘B works without the markdown rule if an app registers only the command.
+- **Inline rules convert on the closing delimiter**, when the update's latest edit typed it: deleting back to `**b**|` doesn't convert. The opening delimiter is the nearest one on the same line that starts a word (after whitespace, punctuation, a symbol, or a token), with text inside that doesn't start or end with whitespace, so `snake_case_name`, `2*3*4`, and `a * b *` stay literal. A single `*` or `_` next to another of the same character is part of a longer delimiter, so `**bold*` waits. Code takes no other marks.
+- **Block rules**: `- `, `* `, `+ `, and `1. ` (any start up to 9 digits) make a list item, `> ` a quote, and `[ ] ` or `[x] ` at the start of an item a task, all at the start of a paragraph. A paragraph of ```` ``` ```` plus an optional language becomes a code block on ↩. The first block of a list item can't become a list or quote. Lists join a list of the same kind just before them, and quotes join a quote just before them.
+- **Keys in blocks**: in a list item, ↩ splits the item (a new task is unchecked), and ↩ in an empty item moves it out a level, or out of the list at the top level. ⇥ moves an item into the item before it, up to 3 levels, counting again inside a quote. In a list, ⇥ never types a tab, even when the item can't move. ⇧⇥ moves an item out; a nested item takes the items after it as its children. ⌫ at the start of an item removes a task's box first, then moves the item out. ↩ in an empty paragraph of a quote, and ⌫ at the start of a quote's first paragraph, move it out of the quote. In a code block, ↩ on an empty last line leaves it, and ⌫ at its start makes it a paragraph.
+- **Backspace to revert**: a conversion records the document and caret before it as transient plugin state (`PluginRegistry.addTransientState`): like stored marks, it is cleared by an update that moves the selection without setting it. ⌫ right after the conversion restores the literal characters without running transforms, so they stay literal.
+- **`toggleTask`** with no payload toggles the item at the caret, and makes a plain item an unchecked task. `Command<Position>.toggleTask` toggles only a task whose first line holds the position. The engines run it for a click (AppKit) or tap (UIKit) on the box.
+- **The markdown writer writes nested lists tight** (`- a` then `  - b`, no blank line) where CommonMark lets the list interrupt the paragraph: a bullet list, or an ordered list starting at 1, whose first item isn't empty.
+- **`CodeHighlighter`** is a `MarkdownCodeBlocks(highlighter:)` parameter, and `ComposerController.codeHighlighter` exposes it. Rendering highlight runs comes with `ComposerStyled`'s colors (milestone 10).
+- The markdown plugins contribute the `/quote`, `/code`, and `/list` slash commands once slash commands exist (later in this milestone).
+
 #### Suggestions: mentions, hashtags, slash commands
 
 The suggestion machinery is shared and headless. The controller exposes the active trigger, the query, the anchor rect, the highlighted index, and the loading and empty states. Composer handles ↑, ↓, ⇥, ↩, and Esc. The consumer renders the list.

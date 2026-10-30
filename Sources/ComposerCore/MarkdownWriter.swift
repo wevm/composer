@@ -14,6 +14,7 @@ struct MarkdownWriter {
     var result: [String] = []
     // Adjacent lists of the same kind alternate markers, or they would merge.
     var previousList: (ordered: Bool, alternate: Bool)?
+    var previousIsParagraph = false
     for (index, block) in blocks.enumerated() {
       var blockLines: [String]
       var list: (ordered: Bool, alternate: Bool)?
@@ -34,8 +35,26 @@ struct MarkdownWriter {
         blockLines = paragraph([.text(node.text)], isItemStart: firstIsItemStart && index == 0)
       }
       previousList = list
+      defer {
+        if case .paragraph = block {
+          previousIsParagraph = true
+        } else {
+          previousIsParagraph = false
+        }
+      }
       if blockLines.isEmpty { continue }
-      if !result.isEmpty { result.append("") }
+      // In an item, a list right after a paragraph is written tight, as a
+      // chat message's nested list is: a bullet list, or one that starts at
+      // 1, can interrupt the paragraph.
+      let tight: Bool
+      switch block {
+      case .list(.bullet, _), .list(.ordered(start: 1), _):
+        // An empty first item (a marker alone) can't interrupt.
+        tight = firstIsItemStart && previousIsParagraph && blockLines[0].contains(" ")
+      default:
+        tight = false
+      }
+      if !result.isEmpty, !tight { result.append("") }
       result += blockLines
     }
     return result

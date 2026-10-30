@@ -142,6 +142,30 @@
     }
   }
 
+  extension NSTextLayoutManager {
+    /// The task item whose box is at `point`, in text container
+    /// coordinates: the position of its first line, which `toggleTask`
+    /// takes. The box is in the gutter left of the line's text.
+    package func taskBox(at point: CGPoint) -> Position? {
+      guard let fragment = textLayoutFragment(for: point) as? DecoratedLayoutFragment,
+        case .task? = fragment.decoration.marker, fragment.decoration.isFirstLine,
+        let line = fragment.textLineFragments.first,
+        let contentManager = textContentManager
+      else { return nil }
+      let frame = fragment.layoutFragmentFrame
+      let textStart = frame.minX + line.typographicBounds.minX
+      let lineBottom = frame.minY + line.typographicBounds.maxY
+      guard point.x < textStart, point.x >= textStart - styles(of: fragment).indent,
+        point.y <= lineBottom
+      else { return nil }
+      let offset = contentManager.offset(
+        from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
+      return Position(offset)
+    }
+
+    private func styles(of fragment: DecoratedLayoutFragment) -> TextStyles { fragment.styles }
+  }
+
   extension NSTextContentManager {
     /// The text range of a storage range.
     package func textRange(for range: NSRange) -> NSTextRange? {

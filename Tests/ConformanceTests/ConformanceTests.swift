@@ -219,6 +219,65 @@
       expectConformance(generator.session(length: 40), from: state, plugins: [UppercaseQ()])
     }
 
+    @Test func markdownRulesAgree() {
+      expectConformance(
+        Session {
+          Type("**bold** and _it_ x")
+          Type(" **y**")
+          Press(.delete)
+          Type("\n- a\nb")
+          Press(.tab)
+          Type("\n[ ] task")
+          Press(.tab, modifiers: .shift)
+          Type("\n\n> quote\n\n```swift\ncode\n\nafter [w](https://wevm.dev)")
+          Select(caret: 0)
+          Press(.delete)
+        }, plugins: [PluginGroup.markdown])
+    }
+
+    /// Random typing over markdown syntax, with ⇥ and ⇧⇥.
+    @Test(arguments: 0..<12) func randomMarkdownSessions(seed: Int) {
+      var generator = SessionGenerator(seed: UInt64(seed) &+ 1_000)
+      expectConformance(
+        generator.markdownSession(length: 60), plugins: [PluginGroup.markdown])
+    }
+
+    @Test func aTaskBoxTogglesItsItem() throws {
+      let driver = NativeDriver(
+        EditorState(document: MarkdownCodec().parse("- [ ] milk\n- [x] eggs")),
+        plugins: [PluginGroup.markdown])
+      let layout = try #require(driver.textView.textLayoutManager)
+      var first: NSTextLayoutFragment?
+      layout.enumerateTextLayoutFragments(
+        from: layout.documentRange.location, options: [.ensuresLayout]
+      ) { fragment in
+        first = fragment
+        return false
+      }
+      let fragment = try #require(first)
+      let line = try #require(fragment.textLineFragments.first)
+      let textStart = fragment.layoutFragmentFrame.minX + line.typographicBounds.minX
+      let y = fragment.layoutFragmentFrame.minY + line.typographicBounds.midY
+      #expect(layout.taskBox(at: CGPoint(x: textStart + 4, y: y)) == nil, "on the text")
+      let box = try #require(layout.taskBox(at: CGPoint(x: textStart - 8, y: y)))
+      #expect(box == Position(0))
+      #if canImport(AppKit) && !canImport(UIKit)
+        // A click there, as AppKit delivers it.
+        let origin = driver.textView.textContainerOrigin
+        let point = driver.textView.convert(
+          CGPoint(x: textStart - 8 + origin.x, y: y + origin.y), to: nil)
+        let event = try #require(
+          NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: driver.window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1))
+        driver.textView.mouseDown(with: event)
+      #else
+        driver.controller.run(Command<Position>.toggleTask, box)
+      #endif
+      #expect(driver.controller.markdown == "- [x] milk\n- [x] eggs")
+    }
+
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
       let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))
@@ -337,6 +396,24 @@
 
     mutating func document() -> Document {
       Document(blocks: (0..<next(4) + 1).map { _ in block(depth: 0) }).normalized()
+    }
+
+    mutating func markdownSession(length: Int) -> Session {
+      var steps: [Step] = []
+      for _ in 0..<length {
+        switch next(14) {
+        case 0: steps.append(.press(.tab, pick([KeyModifiers(), .shift])))
+        case 1: steps.append(.press(.delete, []))
+        case 2: steps.append(.press(.return, []))
+        case 3: steps.append(.press(pick([Key.leftArrow, .rightArrow]), []))
+        case 4: steps.append(.undo)
+        default:
+          steps.append(
+            .type(
+              pick(["**", "*", "_", "`", "~~", "- ", "1. ", "> ", "[ ] ", "a", "b ", "```", "x"])))
+        }
+      }
+      return Session(steps: steps)
     }
 
     mutating func session(length: Int) -> Session {

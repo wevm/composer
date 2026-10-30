@@ -27,6 +27,12 @@ public struct PluginRegistry: Sendable {
   public internal(set) var transforms: [NodeTransform] = []
   public internal(set) var keyBindings: [KeyBinding] = []
   var commandHandlers: [CommandBus.Registration] = []
+  /// Plugin state that lasts only until the selection moves, like stored
+  /// marks: an update that moves the selection outside a composition
+  /// clears it, unless the update set it.
+  public internal(set) var transientState: [String] = []
+  /// Colors code blocks (see `MarkdownCodeBlocks`).
+  public var codeHighlighter: (any CodeHighlighter)?
 
   public init() {}
 
@@ -43,6 +49,11 @@ public struct PluginRegistry: Sendable {
     _ name: String, _ body: @escaping @Sendable (inout EditorState, DocumentRange) -> Void
   ) {
     transforms.append(NodeTransform(name, body))
+  }
+
+  /// Makes a plugin state key transient (see `transientState`).
+  public mutating func addTransientState<State>(_ key: PluginKey<State>) {
+    if !transientState.contains(key.name) { transientState.append(key.name) }
   }
 
   public mutating func addKeyBinding(_ binding: KeyBinding) {
