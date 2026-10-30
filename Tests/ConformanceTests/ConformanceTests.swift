@@ -475,6 +475,8 @@
         empty.placeholder = "Message"
         let typed = ComposerTextView(
           controller: ComposerController(), frame: NSRect(x: 0, y: 30, width: 300, height: 30))
+        // In the placeholder's color, so both antialias alike at 1×.
+        typed.textStyles.foreground = .placeholderTextColor
         typed.insertText("Message", replacementRange: NSRange(location: NSNotFound, length: 0))
         window.contentView?.addSubview(empty)
         window.contentView?.addSubview(typed)
