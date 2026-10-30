@@ -10,18 +10,12 @@ struct PlaygroundDemo: View {
     var id: Self { self }
   }
 
-  @State private var controller = ComposerController {
-    PluginGroup.markdown
-    MentionsPlugin(source: .static(Self.people))
-    HashtagsPlugin()
-    SlashCommandsPlugin([
-      SlashCommand("shrug", summary: "¯\\_(ツ)_/¯") { _, _ in .replace("¯\\_(ツ)_/¯") }
-    ])
-    EmojiShortcodesPlugin(emoji: Self.emoji)
-  }
+  @State private var model = DemoModel()
   @State private var readout = Readout.markdown
   @State private var isExpanded = false
   @FocusState private var isFocused: Bool
+
+  private var controller: ComposerController { model.controller }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -36,28 +30,51 @@ struct PlaygroundDemo: View {
         "Type markdown: **bold**, _italic_, ~~strike~~, `code`, and [links](url) convert as "
           + "you close them, and ⌫ right after undoes it. Start a line with - , 1. , > , or [ ] "
           + "in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block. Try @to, #tags, "
-          + "/shrug, /quote, and :smile:."
+          + "/shrug, /quote, and :smile:. ↩ sends on macOS (⌘↩ anywhere); ↑ in an empty "
+          + "composer edits your last message."
       )
       .font(.callout)
       .foregroundStyle(.secondary)
+      TranscriptView(model: model)
       Composer.Root(controller) {
         Composer.Suggestions()
           .padding(4)
           .background(.background, in: .rect(cornerRadius: 8))
-        Composer.Input("Message", isExpanded: $isExpanded)
-          .focused($isFocused)
-          .accessibilityIdentifier("composer")
-          #if os(iOS)
-            .composerKeyboardAccessory { accessory }
-          #endif
-          .padding(6)
-          .background(.background, in: .rect(cornerRadius: 8))
-          .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
-          .frame(maxHeight: isExpanded ? .infinity : nil)
+        Composer.Header { context in
+          HStack {
+            Text(context.kind == .edit ? "Editing your message" : "Replying to \(context.id)")
+              .font(.callout.bold())
+            Spacer()
+            Button("Cancel", systemImage: "xmark.circle.fill") { controller.setContext(nil) }
+              .labelStyle(.iconOnly)
+              .buttonStyle(.plain)
+          }
+          .foregroundStyle(.secondary)
+        }
+        Composer.Attachments()
+        HStack(alignment: .bottom, spacing: 8) {
+          Composer.Actions(.leading)
+            .labelStyle(.iconOnly)
+            .font(.title2)
+          Composer.Input("Message", isExpanded: $isExpanded)
+            .focused($isFocused)
+            .accessibilityIdentifier("composer")
+            #if os(iOS)
+              .composerKeyboardAccessory { accessory }
+            #endif
+            .padding(6)
+            .background(.background, in: .rect(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+            .frame(maxHeight: isExpanded ? .infinity : nil)
+          Composer.Actions(.trailing)
+            .labelStyle(.iconOnly)
+            .font(.title2)
+        }
+        .buttonStyle(.plain)
         Composer.Footer { state in
           Text(summary(of: state))
             .font(.callout.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .foregroundStyle(state[MaxLength.statusKey]?.isOver == true ? .red : .secondary)
         }
       }
       HStack {
@@ -101,6 +118,9 @@ struct PlaygroundDemo: View {
 
   private func summary(of state: EditorState) -> String {
     var summary = "selection \(state.selection) · \(state.document.length) units"
+    if let status = state[MaxLength.statusKey] {
+      summary += " · \(status.count)/\(status.limit)"
+    }
     if let marked = state.markedText {
       summary += " · composing \(marked.range.lowerBound)..<\(marked.range.upperBound)"
     }
@@ -137,6 +157,111 @@ struct PlaygroundDemo: View {
     let composer = ComposerController()
     ```
     """
+}
+
+/// The demo's state: the composer and the messages it sent.
+@MainActor @Observable final class DemoModel {
+  struct Message: Identifiable {
+    let id: String
+    var document: Document
+    var markdown: String
+    var attachments: [String]
+  }
+
+  struct Context: ComposerContext {
+    var id: String
+    var kind: ComposerContextKind
+  }
+
+  var messages: [Message] = []
+  @ObservationIgnored private(set) var controller: ComposerController!
+  @ObservationIgnored private var nextID = 1
+
+  init() {
+    controller = ComposerController {
+      PluginGroup.chatDefaults
+      MentionsPlugin(source: .static(PlaygroundDemo.people))
+      HashtagsPlugin()
+      SlashCommandsPlugin([
+        SlashCommand("shrug", summary: "¯\\_(ツ)_/¯") { _, _ in .replace("¯\\_(ツ)_/¯") }
+      ])
+      EmojiShortcodesPlugin(emoji: PlaygroundDemo.emoji)
+      SendAction { [weak self] message in
+        // A pretend network round trip.
+        try await Task.sleep(for: .milliseconds(150))
+        await self?.receive(message)
+      }
+      .placement(.trailing)
+      ReplyAndEdit { [weak self] controller in
+        guard let last = self?.messages.last else { return false }
+        controller.setContext(Context(id: last.id, kind: .edit), document: last.document)
+        return true
+      }
+      AttachmentsPlugin { attachment, controller in
+        // A pretend upload.
+        Task {
+          for step in 1...4 {
+            try? await Task.sleep(for: .milliseconds(250))
+            controller.setStatus(.uploading(progress: Double(step) / 4), of: attachment.id)
+          }
+          controller.setStatus(.ready, of: attachment.id)
+        }
+      }
+      AttachmentPicker { controller in
+        controller.addAttachments([Attachment(payload: "photo", name: "photo.png")])
+      }
+      MaxLength(500)
+    }
+  }
+
+  func reply(to message: Message) {
+    controller.setContext(Context(id: message.id, kind: .reply))
+  }
+
+  private func receive(_ message: ComposerMessage) {
+    let sent = Message(
+      id: message.context?.kind == .edit ? message.context!.id : "m\(nextID)",
+      document: message.document, markdown: message.markdown,
+      attachments: message.attachments.map { $0.name ?? "attachment" })
+    if let index = messages.firstIndex(where: { $0.id == sent.id }) {
+      messages[index] = sent
+    } else {
+      messages.append(sent)
+      nextID += 1
+    }
+  }
+}
+
+/// The messages sent so far, newest last.
+struct TranscriptView: View {
+  let model: DemoModel
+
+  var body: some View {
+    if !model.messages.isEmpty {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(model.messages) { message in
+            HStack(alignment: .top) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(message.markdown)
+                if !message.attachments.isEmpty {
+                  Label(message.attachments.joined(separator: ", "), systemImage: "paperclip")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              Spacer()
+              Button("Reply") { model.reply(to: message) }
+                .font(.caption)
+            }
+            .padding(8)
+            .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+          }
+        }
+      }
+      .frame(maxHeight: 180)
+    }
+  }
 }
 
 /// The live readout of the document. It reads the state, so it updates with

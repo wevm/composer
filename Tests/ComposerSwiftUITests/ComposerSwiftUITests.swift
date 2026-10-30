@@ -129,8 +129,13 @@
         let _ = counter.root += 1
         Composer.Root(controller) {
           VStack {
+            Composer.Header { context in Text("Replying to \(context.id)") }
+            Composer.Attachments()
             Composer.Placeholder { Text("Say something") }
-            Composer.Input("Message")
+            HStack {
+              Composer.Input("Message")
+              Composer.Actions(.trailing)
+            }
             Composer.Footer { state in
               let _ = counter.footer += 1
               Text("\(state.document.length)")
@@ -142,7 +147,9 @@
     }
 
     @Test func aKeystrokeInvalidatesOnlyViewsOfTheTextOrSelection() {
-      let controller = ComposerController()
+      let controller = ComposerController(plugins: [
+        SendAction { _ in }.placement(.trailing), AttachmentsPlugin { _, _ in },
+      ])
       let counter = Counter()
       let host = Host(Screen(controller: controller, counter: counter))
       let textView = host.textView
@@ -158,6 +165,11 @@
       let footer = counter.footer
       let placeholder = RenderCounts.placeholderBodies
       let inputUpdates = RenderCounts.inputUpdates
+      let slots = (
+        RenderCounts.headerBodies, RenderCounts.attachmentsBodies, RenderCounts.actionsBodies,
+        RenderCounts.actionBodies
+      )
+      #expect(controller.isEnabled(SendAction.id))
       for character in "bcdef" {
         host.type(String(character))
         host.settle()
@@ -172,12 +184,41 @@
       #expect(counter.sibling == sibling)
       #expect(RenderCounts.placeholderBodies == placeholder)
       #expect(RenderCounts.inputUpdates == inputUpdates)
+      // The slots observe their own data, which typing doesn't change.
+      #expect(RenderCounts.headerBodies == slots.0)
+      #expect(RenderCounts.attachmentsBodies == slots.1)
+      #expect(RenderCounts.actionsBodies == slots.2)
+      #expect(RenderCounts.actionBodies == slots.3, "send stays enabled")
 
       // Clearing shows the placeholder again.
       controller.clear()
       host.settle()
       #expect(RenderCounts.placeholderBodies > placeholder)
       #expect(counter.root == root)
+    }
+
+    struct Editing: ComposerContext {
+      var id = "m1"
+      var kind = ComposerContextKind.edit
+    }
+
+    @Test func slotsUpdateWithTheirData() {
+      let controller = ComposerController(plugins: [
+        SendAction { _ in }.placement(.trailing), AttachmentsPlugin { _, _ in },
+      ])
+      let counter = Counter()
+      let host = Host(Screen(controller: controller, counter: counter))
+      let (header, tray, action) = (
+        RenderCounts.headerBodies, RenderCounts.attachmentsBodies, RenderCounts.actionBodies
+      )
+      controller.setContext(Editing())
+      host.settle()
+      #expect(RenderCounts.headerBodies > header)
+      #expect(RenderCounts.actionBodies > action, "send's label becomes Save")
+      controller.addAttachments([Attachment(payload: 0, name: "a.png", status: .ready)])
+      host.settle()
+      #expect(RenderCounts.attachmentsBodies > tray)
+      #expect(controller.isEnabled(SendAction.id))
     }
 
     struct Sized: View {

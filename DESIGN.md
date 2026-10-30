@@ -657,6 +657,8 @@ MentionsPlugin(source: users)
 
 Slots are data on the controller. Plugins contribute to them, and any UI layer renders them.
 
+In SwiftUI (milestone 8): `Composer.Header { context in … }` shows while a context is set; `Composer.Attachments()` is the tray in the environment's `AttachmentStyle`, each item with a remove button (or `Composer.Attachments { attachment in … }`); `Composer.Actions(.leading)` and `Composer.Actions(.trailing)` render the visible actions at a placement in the `ComposerActionStyle`, and `Composer.Action(id)` places one by id. Each observes only its own data on the controller (the context, the tray, or the visible and enabled action sets), so typing invalidates none of them unless, say, send becomes enabled; a test holds this.
+
 ### Actions
 
 Actions are values. Plugins and consumers both provide them.
