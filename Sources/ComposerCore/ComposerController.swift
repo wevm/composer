@@ -186,4 +186,9 @@ public final class ComposerController {
   public func clear() {
     setDocument(.empty)
   }
+
+  /// The document as markdown, with this composer's schema.
+  public var markdown: String {
+    MarkdownCodec(schema: schema).serialize(state.document)
+  }
 }

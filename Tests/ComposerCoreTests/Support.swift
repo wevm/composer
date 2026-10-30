@@ -41,6 +41,8 @@ let testSchema = Schema([
     fallbackText: { "#" + $0.label }),
 ])
 
+let markdown = MarkdownCodec(schema: testSchema)
+
 func paragraph(_ content: Inline...) -> Block { .paragraph(content) }
 func text(_ string: String, _ marks: Marks = Marks()) -> Inline { .text(string, marks: marks) }
 func mention(_ label: String, id: String) -> Inline {

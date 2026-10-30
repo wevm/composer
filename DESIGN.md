@@ -285,7 +285,7 @@ Markdown is the interchange format, because apps store markdown strings. The dia
 
 **Lossless means semantic, not byte for byte:**
 
-- `parse(serialize(doc)) == doc` for every document.
+- `parse(serialize(doc)) == doc` for every document in canonical form (see **Canonical form** below).
 - Export uses one canonical form: `**bold**`, `_italic_`, `~~strike~~`, and `-` bullets. So `*a*` imports as italic and re-exports as `_a_`.
 - Re-export is idempotent after the first pass: `serialize(parse(serialize(parse(md)))) == serialize(parse(md))`.
 - Content is never dropped. Syntax the dialect doesn't support stays as literal text.
@@ -308,12 +308,28 @@ The supported dialect:
 - Export escapes only characters that would otherwise parse as syntax. A `*` between spaces stays as it is.
 - Lists nested deeper than 3 levels, in imported markdown or pasted HTML, are clamped to level 3: the deeper items become level-3 items, in their original order, and no text is lost.
 
+**Canonical form** (decided in milestone 3). Some documents have no markdown spelling, so the round trip is `parse(serialize(doc)) == MarkdownCodec.canonical(doc)`, for every document whose atomic nodes are registered and that has no unknown nodes. `canonical` is `Document.normalized()` plus one schema rule, and it never changes text:
+
+- Whitespace at the edges of bold, italic, and strikethrough moves outside the mark (`** a**` is not emphasis in CommonMark). Paragraphs don't end with a line break, empty paragraphs, quotes, and lists are removed, adjacent runs with the same marks merge, and line endings are `\n`.
+- A list inside a quote starts counting levels again. Quotes nest at most 8 deep; deeper quotes are spliced into their parent. Ordered starts are clamped to `0...999_999_999`, the nine digits CommonMark allows.
+- Next to a custom-syntax token whose markdown ends (or starts) with a word character, such as `#tag`, there is no character left to escape, so emphasis can open (or close) there only before one word character, with a single delimiter. Otherwise the emphasis moves off the edge character. This is rare (`#tag*(x)*`) and keeps the text.
+
+Other dialect decisions:
+
+- Export writes the minimal escaping and checks it by parsing the paragraph back; if that fails, it escapes all punctuation in the paragraph instead. Adversarial input sometimes takes the fallback.
+- A newline in a paragraph exports as a line ending, and an empty line as a `\` hard break.
+- Bare URLs stay text in the document. Linking them is the autolink plugin's job, while typing and on paste. `<scheme:…>` autolinks are parsed. Email autolinks, link titles, reference links, thematic breaks, setext headings, and raw HTML are unsupported, so they stay literal. Indented code is a code block, as in CommonMark.
+- Character references: numeric ones and `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, and `&nbsp;` decode. Other named references stay literal, so the parser needs no entity table.
+- Hostile input is bounded: containers nest at most 32 deep while parsing, and deeper markers stay text.
+
 ### Directives and node codecs
 
 Codecs are configured per node type, and each has a default:
 
 - Atomic nodes (mentions, custom tokens, slash tokens) default to generic directives, for example `:mention[tom]{#user_123}`. Directives are a CommonMark *proposal* implemented by `remark-directive`. They are not part of the CommonMark spec or GFM. They are the default because they are generic: they carry a type, a label, and attributes without app-specific syntax, and JS clients can parse them with an existing library. Because they are not standard, the codec can be replaced.
 - Hashtags default to plain `#tag`, which every markdown renderer already shows sensibly.
+- A directive parses only when its name is registered; others stay literal text. As in `remark-directive`, a directive doesn't start right after a `:`, so export writes such a colon as `&#58;`. Attributes are written `#id` when the id is a plain identifier, and `key="value"` otherwise. Keys that aren't attribute names can't be written, so markdown drops them (JSON keeps them).
+- A custom codec gives its trigger characters, an encoder, and a decoder that reads from a trigger. Export escapes a trigger wherever the decoder would accept the text after it.
 
 ```swift
 MentionsPlugin(source: users)
