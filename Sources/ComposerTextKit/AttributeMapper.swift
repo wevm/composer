@@ -35,19 +35,19 @@
   /// and tests. Compared by value.
   package final class TokenInfo: NSObject, @unchecked Sendable {
     package let label: String
-    package let accessibilityLabel: String
+    package let spokenLabel: String
 
-    package init(label: String, accessibilityLabel: String) {
+    package init(label: String, spokenLabel: String) {
       self.label = label
-      self.accessibilityLabel = accessibilityLabel
+      self.spokenLabel = spokenLabel
     }
 
     override package func isEqual(_ object: Any?) -> Bool {
       guard let other = object as? TokenInfo else { return false }
-      return label == other.label && accessibilityLabel == other.accessibilityLabel
+      return label == other.label && spokenLabel == other.spokenLabel
     }
 
-    override package var hash: Int { label.hashValue ^ accessibilityLabel.hashValue }
+    override package var hash: Int { label.hashValue ^ spokenLabel.hashValue }
   }
 
   /// What a text block's layout fragment draws around its text.
@@ -222,19 +222,25 @@
         }
         guard !breaks.isEmpty else { return }
         // Lines after the first: each runs to its newline, the last to the
-        // block's end and separator.
+        // block's end and separator. The slice is walked by its own newlines,
+        // because tokens make storage offsets differ from document positions.
         let sliceEnd = result.length
-        for (index, lineBreak) in breaks.enumerated() {
-          let lineStart = start + lineBreak + 1
-          let lineEnd = index + 1 < breaks.count ? start + breaks[index + 1] + 1 : end + 1
-          let from = max(lineStart, lower) - lower + sliceStart
-          let to = min(lineEnd - lower + sliceStart, sliceEnd)
-          guard from < to else { continue }
-          let line = self.attributes(
-            for: decoration.line(first: false, last: index == breaks.count - 1))
-          result.addAttributes(
-            [.paragraphStyle: line[.paragraphStyle]!, .composerBlock: line[.composerBlock]!],
-            range: NSRange(location: from, length: to - from))
+        var line = breaks.prefix { start + $0 < lower }.count
+        let string = result.mutableString
+        var from = sliceStart
+        while from < sliceEnd {
+          let newline = string.range(
+            of: "\n", options: .literal, range: NSRange(location: from, length: sliceEnd - from))
+          let to = newline.location == NSNotFound ? sliceEnd : NSMaxRange(newline)
+          if line > 0 {
+            let style = self.attributes(
+              for: decoration.line(first: false, last: line == breaks.count))
+            result.addAttributes(
+              [.paragraphStyle: style[.paragraphStyle]!, .composerBlock: style[.composerBlock]!],
+              range: NSRange(location: from, length: to - from))
+          }
+          line += 1
+          from = to
         }
       }
       result.endEditing()
@@ -315,7 +321,7 @@
           style.backgroundOpacity)
       }
       if style.isBold { attributes[.font] = font(bold: true, italic: false, code: false) }
-      attributes[.composerToken] = TokenInfo(label: label, accessibilityLabel: accessibilityLabel)
+      attributes[.composerToken] = TokenInfo(label: label, spokenLabel: accessibilityLabel)
       result.append(NSAttributedString(string: label, attributes: attributes))
     }
 
