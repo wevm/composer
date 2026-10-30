@@ -17,6 +17,57 @@
   import ComposerTesting
   import XCTest
 
+  /// A plain TextKit 2 text view in a window, the floor the composer is
+  /// compared with.
+  @MainActor final class PlainTextView {
+    let view = PlatformTextView(usingTextLayoutManager: true)
+    #if canImport(UIKit)
+      private var window: UIWindow?
+    #else
+      private var window: NSWindow?
+    #endif
+
+    /// A view showing `text`, not yet in a window.
+    init(_ text: NSAttributedString, frame: CGRect) {
+      view.frame = frame
+      #if canImport(UIKit)
+        view.attributedText = text
+      #else
+        view.textStorage?.setAttributedString(text)
+      #endif
+    }
+
+    /// A view showing a document in its own window, with the caret at
+    /// `selection`.
+    convenience init(_ document: Document, selection: Int) {
+      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      #if canImport(UIKit)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 640))
+        window.isHidden = false
+        self.init(text, frame: window.bounds)
+        window.addSubview(view)
+        view.selectedRange = NSRange(location: selection, length: 0)
+      #else
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        self.init(text, frame: window.contentView!.bounds)
+        window.contentView!.addSubview(view)
+        view.setSelectedRange(NSRange(location: selection, length: 0))
+      #endif
+      self.window = window
+    }
+
+    func type(_ character: String) {
+      #if canImport(UIKit)
+        view.insertText(character)
+      #else
+        view.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+      #endif
+    }
+  }
+
   final class PerformanceTests: XCTestCase {
     /// A chat-sized document: about 2,000 characters of mixed blocks.
     static let chatMarkdown: String = {
@@ -35,6 +86,9 @@
     /// changeset applied to text storage, and layout of the viewport.
     /// Typing goes through the text input methods, as the keyboard or input
     /// system delivers it.
+    ///
+    /// A keystroke into a plain TextKit 2 text view showing the same text is
+    /// measured alternately with it, as the floor (see `bar`).
     @MainActor func testKeystrokeIsUnder4Milliseconds() {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       XCTAssertGreaterThan(document.length, 1_800)
@@ -42,22 +96,31 @@
       layOut(driver.textView)
       // Typing in the middle of a paragraph, the common case.
       driver.perform(.select(Position(document.length / 2)..<Position(document.length / 2)))
+      let plain = PlainTextView(document, selection: document.length / 2)
       var samples: [Duration] = []
+      var plainSamples: [Duration] = []
       for index in 0..<300 {
-        let step = Step.type(index % 10 == 9 ? " " : "a")
+        let character = index % 10 == 9 ? " " : "a"
         samples.append(
           ContinuousClock().measure {
-            driver.perform(step)
+            driver.perform(.type(character))
             layOut(driver.textView)
+          })
+        plainSamples.append(
+          ContinuousClock().measure {
+            plain.type(character)
+            layOut(plain.view)
           })
       }
       let (median, p95) = statistics(samples.dropFirst(20))
+      let floor = statistics(plainSamples.dropFirst(20))
       report("keystroke", median: median, p95: p95)
-      reportPlainKeystroke(document)
+      report("keystroke, plain text view", median: floor.median, p95: floor.p95)
       // The budget holds for the typical keystroke; the tail gets twice it,
       // for scheduling noise on shared CI machines.
-      XCTAssertLessThan(median, .milliseconds(4), "median keystroke \(median)")
-      XCTAssertLessThan(p95, .milliseconds(8), "p95 keystroke \(p95)")
+      XCTAssertLessThan(
+        median, bar(.milliseconds(4), plain: floor.median), "median keystroke \(median)")
+      XCTAssertLessThan(p95, bar(.milliseconds(8), plain: floor.p95), "p95 keystroke \(p95)")
     }
 
     /// A 20,000-character paste into a chat-sized document, through layout
@@ -84,17 +147,25 @@
     }
 
     /// Creating a composer and laying it out in a window, as a chat screen
-    /// mounts its input: empty, and restoring a short draft.
+    /// mounts its input: empty, and restoring a short draft. A plain text
+    /// view with the same text is mounted alternately, as the floor.
     @MainActor func testMountIsUnder5Milliseconds() {
       let draft = MarkdownCodec().parse(
         "Restoring a **draft** with a [link](https://wevm.dev) and `code`, about the length "
           + "of a typical message, which wraps onto a second line.")
       for (name, document) in [("empty", Document.empty), ("draft", draft)] {
-        let median = mountTime(name: "mount, \(name)") {
-          ComposerTextView(
-            controller: ComposerController(EditorState(document: document)), frame: $0)
-        }
-        XCTAssertLessThan(median, .milliseconds(5), "median mount (\(name)) \(median)")
+        let text = AttributeMapper(styles: .standard).attributedString(for: document)
+        let (plain, composer) = mountTimes(
+          { PlainTextView(text, frame: $0).view },
+          {
+            ComposerTextView(
+              controller: ComposerController(EditorState(document: document)), frame: $0)
+          })
+        report("mount, \(name)", median: composer.median, p95: composer.p95)
+        report("mount, \(name), plain text view", median: plain.median, p95: plain.p95)
+        XCTAssertLessThan(
+          composer.median, bar(.milliseconds(5), plain: plain.median),
+          "median mount (\(name)) \(composer.median)")
       }
     }
 
@@ -107,16 +178,7 @@
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       let text = AttributeMapper(styles: .standard).attributedString(for: document)
       let (plain, composer) = mountTimes(
-        { frame in
-          let view = PlatformTextView(usingTextLayoutManager: true)
-          view.frame = frame
-          #if canImport(UIKit)
-            view.attributedText = text
-          #else
-            view.textStorage?.setAttributedString(text)
-          #endif
-          return view
-        },
+        { PlainTextView(text, frame: $0).view },
         {
           ComposerTextView(
             controller: ComposerController(EditorState(document: document)), frame: $0)
@@ -130,56 +192,17 @@
 
     // MARK: Helpers
 
-    /// A keystroke into a plain TextKit 2 text view showing the same text,
-    /// for comparison (diagnostic).
-    @MainActor private func reportPlainKeystroke(_ document: Document) {
-      let text = AttributeMapper(styles: .standard).attributedString(for: document)
-      let view = PlatformTextView(usingTextLayoutManager: true)
-      #if canImport(UIKit)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 640))
-        window.isHidden = false
-        defer { window.isHidden = true }
-        view.frame = window.bounds
-        window.addSubview(view)
-        view.attributedText = text
-        view.selectedRange = NSRange(location: document.length / 2, length: 0)
+    /// The bar a measurement must clear: its budget, except on the iOS
+    /// Simulator, where a plain text view doing the same work can miss the
+    /// budget on shared CI machines. There the composer must instead stay
+    /// within 1.5 times the plain view plus 2 ms, if that is looser. The
+    /// budgets are for devices.
+    private func bar(_ budget: Duration, plain: Duration) -> Duration {
+      #if targetEnvironment(simulator)
+        return max(budget, plain * 1.5 + .milliseconds(2))
       #else
-        let window = NSWindow(
-          contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
-          backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        view.frame = window.contentView!.bounds
-        window.contentView!.addSubview(view)
-        view.textStorage?.setAttributedString(text)
-        view.setSelectedRange(NSRange(location: document.length / 2, length: 0))
+        return budget
       #endif
-      layOut(view)
-      var samples: [Duration] = []
-      for index in 0..<300 {
-        let character = index % 10 == 9 ? " " : "a"
-        samples.append(
-          ContinuousClock().measure {
-            #if canImport(UIKit)
-              view.insertText(character)
-            #else
-              view.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
-            #endif
-            layOut(view)
-          })
-      }
-      let (median, p95) = statistics(samples.dropFirst(20))
-      report("keystroke, plain text view", median: median, p95: p95)
-    }
-
-    /// The median time to create a view, add it to a window, and lay out
-    /// its viewport, after warm-up.
-    @MainActor private func mountTime(
-      name: String, _ make: (CGRect) -> PlatformTextView
-    ) -> Duration {
-      let (time, _) = mountTimes(make, make)
-      report(name, median: time.median, p95: time.p95)
-      return time.median
     }
 
     /// The mount times of two kinds of view, measured alternately.
