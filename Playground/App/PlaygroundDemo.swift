@@ -51,6 +51,13 @@ struct PlaygroundDemo: View {
       }
     }
     .padding(16)
+    // A click on the background blurs the composer, as AppKit doesn't move
+    // focus for clicks on empty space; the app decides, not the composer.
+    .background {
+      Color.clear
+        .contentShape(.rect)
+        .onTapGesture { isFocused = false }
+    }
     // Docked (iOS), the composer sits at the bottom, on top of the keyboard
     // while it is open: the bottom inset follows the keyboard.
     .safeAreaInset(edge: .bottom, spacing: 0) {
