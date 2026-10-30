@@ -56,12 +56,26 @@
       fatalError("DecoratedLayoutFragment isn't archived")
     }
 
+    /// The paragraph's head indent, where its text starts.
+    private var headIndent: CGFloat {
+      CGFloat(decoration.depth) * styles.indent + (decoration.isCode ? 8 : 0)
+    }
+
+    /// The text container's left edge and width, in the fragment's
+    /// coordinates. TextKit may or may not start the fragment's frame at the
+    /// head indent, so this goes from where the first line's text starts.
+    private var container: (left: CGFloat, width: CGFloat) {
+      let textStart = textLineFragments.first?.typographicBounds.minX ?? 0
+      let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.maxX
+      return (textStart - headIndent, width)
+    }
+
     /// Decorations sit in the indent, left of the text, and code backgrounds
     /// span the container's width.
     override var renderingSurfaceBounds: CGRect {
-      let frame = layoutFragmentFrame
+      let (left, width) = container
       return super.renderingSurfaceBounds.union(
-        CGRect(x: -frame.minX, y: 0, width: max(frame.width, 1), height: frame.height))
+        CGRect(x: left, y: 0, width: max(width, 1), height: layoutFragmentFrame.height))
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
@@ -72,12 +86,14 @@
     private func drawDecoration(at point: CGPoint) {
       let frame = layoutFragmentFrame
       let indent = styles.indent
+      let (containerLeft, containerWidth) = container
+      let left = point.x + containerLeft
       if decoration.isCode {
         // Lines of a code block join into one background, rounded at the
         // block's top and bottom.
-        let x = point.x + CGFloat(decoration.depth) * indent
+        let x = left + CGFloat(decoration.depth) * indent
         let height = frame.height - (decoration.isLastLine ? styles.blockSpacing : 0)
-        let rect = CGRect(x: x, y: point.y, width: frame.width - x + point.x, height: height)
+        let rect = CGRect(x: x, y: point.y, width: left + containerWidth - x, height: height)
         styles.codeBackground.setFill()
         let radius: CGFloat = 5
         bezierPath(roundedRect: rect, radius: radius).fill()
@@ -97,7 +113,7 @@
       }
       styles.secondary.setFill()
       for level in decoration.quoteLevels {
-        let x = point.x + CGFloat(level) * indent + 4
+        let x = left + CGFloat(level) * indent + 4
         // Quote bars run through the block spacing so consecutive blocks join.
         bezierPath(
           roundedRect: CGRect(x: x, y: point.y, width: 3, height: frame.height), radius: 1.5
@@ -108,7 +124,7 @@
           string: marker,
           attributes: [.font: styles.base, .foregroundColor: styles.secondary])
         let size = text.size()
-        let gutterEnd = point.x + CGFloat(decoration.markerLevel + 1) * indent - 6
+        let gutterEnd = left + CGFloat(decoration.markerLevel + 1) * indent - 6
         let lineBounds = line.typographicBounds
         text.draw(
           at: CGPoint(

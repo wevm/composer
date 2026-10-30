@@ -41,7 +41,13 @@
     driver.perform(.marked(["か"], committing: nil))
     textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
     textView.layoutSubtreeIfNeeded()
-    let rep = try #require(textView.bitmapImageRepForCachingDisplay(in: textView.bounds))
+    let rep = try #require(
+      NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: Int(textView.bounds.width * 2),
+        pixelsHigh: Int(textView.bounds.height * 2), bitsPerSample: 8, samplesPerPixel: 4,
+        hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0,
+        bitsPerPixel: 0))
+    rep.size = textView.bounds.size
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
     NSColor.white.setFill()
