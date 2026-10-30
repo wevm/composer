@@ -187,9 +187,21 @@ public final class ComposerController {
 
   public var document: Document { state.document }
 
+  /// The selection. Setting it outside the marked text commits the
+  /// composition, as clicking elsewhere does in a text view.
   public var selection: Selection {
     get { state.selection }
-    set { update { $0.selection = newValue } }
+    set {
+      update { state in
+        if let marked = state.markedText,
+          newValue.range.lowerBound < marked.range.lowerBound
+            || newValue.range.upperBound > marked.range.upperBound
+        {
+          state.markedText = nil
+        }
+        state.selection = newValue
+      }
+    }
   }
 
   /// Inserts a text run or node at the selection.

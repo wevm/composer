@@ -291,3 +291,36 @@ func replacing(_ pattern: String, with replacement: String, name: String) -> Nod
     }
   }
 }
+
+@Suite struct TextBlockContainerTests {
+  @Test func blocksComeWithTheirContainers() {
+    let document = Document(blocks: [
+      .quote([paragraph(text("a"))]),
+      .list(
+        .bullet,
+        items: [
+          ListItem(blocks: [paragraph(text("b")), .quote([paragraph(text("c"))])]),
+          ListItem(checked: true, blocks: [paragraph(text("d"))]),
+        ]),
+      paragraph(text("e")),
+    ])
+    var visited: [(String, [TextBlock.Container])] = []
+    // "a" 0..<1, "b" 2..<3, "c" 4..<5, "d" 6..<7, "e" 8..<9: the range touches b, c, and d.
+    document.forEachTextBlock(in: Position(3)..<Position(6)) { block, containers in
+      guard case .paragraph(let inlines) = block.content, case .text(let string, _) = inlines[0]
+      else { return }
+      visited.append((string, containers))
+    }
+    #expect(visited.map(\.0) == ["b", "c", "d"])
+    #expect(
+      visited.map(\.1) == [
+        [.listItem(kind: .bullet, index: 0, checked: nil, isFirstBlock: true)],
+        [.listItem(kind: .bullet, index: 0, checked: nil, isFirstBlock: false), .quote],
+        [.listItem(kind: .bullet, index: 1, checked: true, isFirstBlock: true)],
+      ])
+    var all: [[TextBlock.Container]] = []
+    document.forEachTextBlock(in: Position(0)..<Position(document.length)) { all.append($1) }
+    #expect(all.count == 5)
+    #expect(all.first == [.quote] && all.last == [])
+  }
+}

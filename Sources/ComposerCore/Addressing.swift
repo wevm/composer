@@ -7,6 +7,15 @@ public struct TextBlock: Sendable, Hashable {
     case code(language: String?, text: String)
   }
 
+  /// A container around a text block.
+  public enum Container: Sendable, Hashable {
+    case quote
+    /// An item of a list. `index` is the item's index in the list, and
+    /// `isFirstBlock` says whether the text block is the item's first block,
+    /// the one that shows the item's marker.
+    case listItem(kind: ListKind, index: Int, checked: Bool?, isFirstBlock: Bool)
+  }
+
   /// The block's content range. A caret at either end is inside the block.
   public var range: DocumentRange
   public var content: Content
@@ -71,6 +80,69 @@ extension Document {
       return false
     }
     return result
+  }
+
+  /// Visits the text blocks that overlap or touch `range`, in order, with the
+  /// containers around each one, outermost first. Renderers use it to style a
+  /// changed span without walking containers themselves.
+  public func forEachTextBlock(
+    in range: DocumentRange, _ body: (TextBlock, _ containers: [TextBlock.Container]) -> Void
+  ) {
+    var containers: [TextBlock.Container] = []
+    containers.reserveCapacity(8)
+    var offset = 0
+    var first = true
+    _ = Self.walk(
+      blocks, containers: &containers, offset: &offset, first: &first,
+      range: range.offsets, body)
+  }
+
+  private static func walk(
+    _ blocks: [Block], containers: inout [TextBlock.Container], offset: inout Int,
+    first: inout Bool, range: Range<Int>, _ body: (TextBlock, [TextBlock.Container]) -> Void
+  ) -> Bool {
+    for (index, block) in blocks.enumerated() {
+      if index > 0, case .listItem(let kind, let item, let checked, true) = containers.last {
+        containers[containers.count - 1] = .listItem(
+          kind: kind, index: item, checked: checked, isFirstBlock: false)
+      }
+      switch block {
+      case .paragraph, .codeBlock:
+        if !first { offset += 1 }
+        first = false
+        let length = block.textLength!
+        if offset > range.upperBound { return true }
+        if offset + length >= range.lowerBound {
+          body(
+            TextBlock(range: .init(offsets: offset..<offset + length), content: block.content),
+            containers)
+        }
+        offset += length
+      case .quote(let children):
+        containers.append(.quote)
+        defer { containers.removeLast() }
+        if walk(
+          children, containers: &containers, offset: &offset, first: &first, range: range, body)
+        {
+          return true
+        }
+      case .list(let kind, let items):
+        for (item, listItem) in items.enumerated() {
+          containers.append(
+            .listItem(kind: kind, index: item, checked: listItem.checked, isFirstBlock: true))
+          defer { containers.removeLast() }
+          if walk(
+            listItem.blocks, containers: &containers, offset: &offset, first: &first,
+            range: range, body)
+          {
+            return true
+          }
+        }
+      case .unknown:
+        break
+      }
+    }
+    return false
   }
 
   /// The text block containing `position`. A position between two blocks'
