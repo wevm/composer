@@ -27,7 +27,10 @@ jobs:
           persist-credentials: false
       - run: swift --version
       - name: Build and test (macOS)
-        run: swift test
+        run: swift test --skip PerformanceTests
+      # Alone, so other tests running in parallel don't skew the timings.
+      - name: Performance budgets (macOS)
+        run: swift test --skip-build --filter PerformanceTests
 
   ios:
     name: Swift (iOS Simulator)
@@ -41,7 +44,15 @@ jobs:
         run: |
           device="$(xcrun simctl list devices available -j |
             python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')"
-          xcodebuild test -scheme Composer-Package -destination "id=$device" -skipPackagePluginValidation
+          echo "device=$device" >> "$GITHUB_ENV"
+          xcodebuild test -scheme Composer-Package -destination "id=$device" -skipPackagePluginValidation \
+            -skip-testing:PerformanceTests
+      # Alone and serially, on the warmed-up simulator, so other tests don't
+      # skew the timings.
+      - name: Performance budgets (iOS Simulator)
+        run: |
+          xcodebuild test -scheme Composer-Package -destination "id=$device" -skipPackagePluginValidation \
+            -only-testing:PerformanceTests -parallel-testing-enabled NO
 
   playground:
     name: Playground (iOS and macOS)
