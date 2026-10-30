@@ -51,3 +51,30 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Playground
         CODE_SIGN_STYLE: Automatic
+  # The package's performance tests, hosted by the app so they run on a
+  # device (package tests run only on the simulator and macOS):
+  # `xcodebuild test -scheme PlaygroundPerformanceTests -configuration Release
+  # -destination id=<device>`.
+  PlaygroundPerformanceTests:
+    type: bundle.unit-test
+    supportedDestinations: [iOS]
+    sources:
+      - path: ../Tests/PerformanceTests
+    dependencies:
+      - target: Playground
+      - package: Composer
+        product: ComposerCore
+      - package: Composer
+        product: ComposerUIKit
+      - package: Composer
+        product: ComposerTesting
+    scheme:
+      testTargets: [PlaygroundPerformanceTests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.wevm.composer.playground.performancetests
+        SWIFT_VERSION: '6.0'
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Playground.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Playground
+        BUNDLE_LOADER: $(TEST_HOST)
+        CODE_SIGN_STYLE: Automatic

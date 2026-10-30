@@ -17,6 +17,19 @@
   import ComposerTesting
   import XCTest
 
+  /// The text a composer shows for a document, styled as it draws it: what
+  /// the plain view is handed. Read from a composer's text storage, since
+  /// the mapper is internal to the package and these tests also build in
+  /// the Playground, to run on a device.
+  @MainActor func renderedText(of document: Document) -> NSAttributedString {
+    let view = ComposerTextView(controller: ComposerController(EditorState(document: document)))
+    #if canImport(UIKit)
+      return NSAttributedString(attributedString: view.textStorage)
+    #else
+      return NSAttributedString(attributedString: view.textStorage!)
+    #endif
+  }
+
   /// A plain TextKit 2 text view in a window, the floor the composer is
   /// compared with.
   @MainActor final class PlainTextView {
@@ -40,7 +53,7 @@
     /// A view showing a document in its own window, with the caret at
     /// `selection`.
     convenience init(_ document: Document, selection: Int) {
-      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      let text = renderedText(of: document)
       #if canImport(UIKit)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 640))
         window.isHidden = false
@@ -164,7 +177,7 @@
         "Restoring a **draft** with a [link](https://wevm.dev) and `code`, about the length "
           + "of a typical message, which wraps onto a second line.")
       for (name, document) in [("empty", Document.empty), ("draft", draft)] {
-        let text = AttributeMapper(styles: .standard).attributedString(for: document)
+        let text = renderedText(of: document)
         let (plain, composer) = mountTimes(
           { PlainTextView(text, frame: $0).view },
           {
@@ -191,7 +204,7 @@
 
     @MainActor private func measureChatSizedMount() -> [Check] {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
-      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      let text = renderedText(of: document)
       let (plain, composer) = mountTimes(
         { PlainTextView(text, frame: $0).view },
         {
