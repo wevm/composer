@@ -13,6 +13,7 @@
 //   line, quote bars, code backgrounds).
 #if canImport(UIKit) || canImport(AppKit)
   import ComposerCore
+  import Synchronization
   #if canImport(UIKit)
     import UIKit
   #else
@@ -324,6 +325,13 @@
     private func font(bold: Bool, italic: Bool, code: Bool) -> PlatformFont {
       let key = (bold ? 1 : 0) | (italic ? 2 : 0) | (code ? 4 : 0)
       if let font = fonts[key] { return font }
+      // Deriving a font is slow enough to show in mount time, so views with
+      // the same styles share derived fonts.
+      let shared = SharedFontKey(base: styles.base, code: styles.code, traits: key)
+      if let font = Self.sharedFonts.withLock({ $0[shared] }) {
+        fonts[key] = font
+        return font
+      }
       let base = code ? styles.code : styles.base
       var font = base
       if bold || italic {
@@ -343,8 +351,17 @@
         #endif
       }
       fonts[key] = font
+      Self.sharedFonts.withLock { $0[shared] = font }
       return font
     }
+
+    private struct SharedFontKey: Hashable, @unchecked Sendable {
+      var base: PlatformFont
+      var code: PlatformFont
+      var traits: Int
+    }
+
+    private static let sharedFonts = Mutex<[SharedFontKey: PlatformFont]>([:])
 
     /// The offsets of the newlines in a text block, which end its lines.
     private static func lineBreaks(in content: TextBlock.Content) -> [Int] {

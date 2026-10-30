@@ -413,17 +413,18 @@
       }
     }
 
-    /// The key of a `UIKeyCommand` input.
+    /// The key of a `UIKeyCommand` input. (A list, not a dictionary: some
+    /// of UIKit's input constants share a value.)
     public init?(keyCommandInput input: String) {
-      let special: [String: Key] = [
-        "\r": .return, "\t": .tab, UIKeyCommand.inputEscape: .escape, "\u{8}": .delete,
-        UIKeyCommand.inputDelete: .forwardDelete, UIKeyCommand.inputUpArrow: .upArrow,
-        UIKeyCommand.inputDownArrow: .downArrow, UIKeyCommand.inputLeftArrow: .leftArrow,
-        UIKeyCommand.inputRightArrow: .rightArrow, UIKeyCommand.inputHome: .home,
-        UIKeyCommand.inputEnd: .end, UIKeyCommand.inputPageUp: .pageUp,
-        UIKeyCommand.inputPageDown: .pageDown,
+      let special: [(String, Key)] = [
+        ("\r", .return), ("\t", .tab), (UIKeyCommand.inputEscape, .escape), ("\u{8}", .delete),
+        (UIKeyCommand.inputDelete, .forwardDelete), (UIKeyCommand.inputUpArrow, .upArrow),
+        (UIKeyCommand.inputDownArrow, .downArrow), (UIKeyCommand.inputLeftArrow, .leftArrow),
+        (UIKeyCommand.inputRightArrow, .rightArrow), (UIKeyCommand.inputHome, .home),
+        (UIKeyCommand.inputEnd, .end), (UIKeyCommand.inputPageUp, .pageUp),
+        (UIKeyCommand.inputPageDown, .pageDown),
       ]
-      if let key = special[input] {
+      if let key = special.first(where: { $0.0 == input })?.1 {
         self = key
       } else if input.count == 1 {
         self = Key(input)
