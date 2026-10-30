@@ -46,4 +46,40 @@ import Testing
     #expect(plain.isIdentity)
     #expect((0...3).map(plain.storage) == [0, 1, 2, 3])
   }
+
+  /// Updating a map through an update's combined edit gives the map of the
+  /// document after it, for random documents and edits.
+  @Test(arguments: 0..<4) @MainActor func updatedMapsMatchFreshOnes(batch: UInt64) {
+    let length: (Inline) -> Int = { inline in
+      if case .node(let node) = inline { return node.label.utf16.count + 1 }
+      return 3
+    }
+    var generator = DocumentGenerator(seed: 0x5EED + batch)
+    for _ in 0..<150 {
+      let controller = ComposerController(EditorState(document: generator.document()))
+      var map = StorageMap(document: controller.document, tokenLength: length)
+      for _ in 0..<6 {
+        let total = controller.document.length
+        let a = generator.int(0...total)
+        let b = generator.int(a...min(total, a + 6))
+        let changeset = controller.update { state in
+          switch generator.int(0...3) {
+          case 0: state.insert(generator.string(), at: .caret(a), marks: Marks())
+          case 1: state.delete(Position(a)..<Position(b))
+          case 2: state.insert([mention("x\(a)", id: "n")], over: Position(a)..<Position(b))
+          default:
+            state.insert(
+              Document(blocks: [paragraph(text("p")), paragraph(mention("q", id: "1"))]),
+              over: Position(a)..<Position(b))
+          }
+        }
+        if let edit = changeset.combinedEdit {
+          map = map.updated(edit, in: controller.document, tokenLength: length)
+        }
+        let fresh = StorageMap(document: controller.document, tokenLength: length)
+        #expect(map == fresh, "\(String(reflecting: controller.document))")
+        if map != fresh { return }
+      }
+    }
+  }
 }

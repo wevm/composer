@@ -233,7 +233,9 @@
         inputDelegate?.textWillChange(self)
       }
       let old = storageMap
-      if !changeset.edits.isEmpty { storageMap = mapper.storageMap(for: state.document) }
+      if let edit = changeset.combinedEdit {
+        storageMap = mapper.storageMap(storageMap, after: edit, in: state.document)
+      }
       ChangesetApplier.apply(
         changeset, document: state.document, to: textStorage, mapper: mapper, old: old,
         new: storageMap)

@@ -45,6 +45,54 @@ package struct StorageMap: Equatable, Sendable {
     }
   }
 
+  /// The map after an edit, given as the update's combined edit and the
+  /// document after it: tokens before the edit stay, those after shift, and
+  /// only the edited span is scanned, so a keystroke doesn't walk the whole
+  /// document.
+  package func updated(
+    _ edit: Changeset.Edit, in document: Document, tokenLength: (Inline) -> Int
+  ) -> StorageMap {
+    let lower = edit.range.lowerBound.offset
+    let upper = edit.range.upperBound.offset
+    let delta = edit.replacementLength - (upper - lower)
+    var result = self
+    result.documentLength = documentLength + delta
+    let kept = firstToken(atOrAfter: lower, \.offset)
+    let following = firstToken(atOrAfter: upper, \.offset)
+    var inserted: [Token] = []
+    let end = lower + edit.replacementLength
+    if edit.replacementLength > 0 {
+      document.forEachTextBlock(in: Position(lower)..<Position(end)) { block, _ in
+        guard case .paragraph(let inlines) = block.content else { return }
+        var offset = block.range.lowerBound.offset
+        for inline in inlines {
+          if offset >= end { break }
+          switch inline {
+          case .node, .unknown:
+            if offset >= lower {
+              inserted.append(Token(offset: offset, storage: 0, length: tokenLength(inline)))
+            }
+          case .text: break
+          }
+          offset += inline.length
+        }
+      }
+    }
+    result.tokens.replaceSubrange(kept..<following, with: inserted)
+    // Offsets after the edit shift; storage offsets from the edit on are
+    // recounted from the tokens before them.
+    var shift =
+      kept > 0
+      ? result.tokens[kept - 1].storage + result.tokens[kept - 1].length
+        - result.tokens[kept - 1].offset - 1 : 0
+    for index in kept..<result.tokens.count {
+      if index >= kept + inserted.count { result.tokens[index].offset += delta }
+      result.tokens[index].storage = result.tokens[index].offset + shift
+      shift += result.tokens[index].length - 1
+    }
+    return result
+  }
+
   package var isIdentity: Bool { tokens.allSatisfy { $0.length == 1 } }
 
   /// The index of the first token at or after `offset`.

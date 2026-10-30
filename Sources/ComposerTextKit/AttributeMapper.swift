@@ -189,6 +189,13 @@
       StorageMap(document: document) { self.tokenText($0).utf16.count }
     }
 
+    /// The map after an update, from the map before it.
+    package func storageMap(
+      _ map: StorageMap, after edit: Changeset.Edit, in document: Document
+    ) -> StorageMap {
+      map.updated(edit, in: document) { self.tokenText($0).utf16.count }
+    }
+
     /// The whole document.
     package func attributedString(for document: Document) -> NSAttributedString {
       attributedString(for: document, in: 0..<document.length, documentLength: document.length)
