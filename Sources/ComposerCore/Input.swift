@@ -19,6 +19,7 @@ extension ComposerController {
     update(undo: isTyping ? .typing : .register) { state in
       let target = range ?? state.markedText?.range ?? state.selection.range
       state.markedText = nil
+      state.tracking?.isTyping = text.count == 1 && text != "\n"
       state.insert(text, at: Selection(target))
     }
   }
@@ -106,21 +107,6 @@ extension ComposerController {
   /// Inserts a line break within the text block.
   public func insertLineBreak() {
     insertText("\n")
-  }
-
-  /// Pastes over the selection. Plain text is inserted as text; plugins that
-  /// map paste (markdown, rich text) come later.
-  public func paste(_ source: PasteSource) {
-    switch source {
-    case .plainText(let text):
-      let text = Normalizer.lineEndings(text)
-      guard !text.isEmpty else { return }
-      update { state in
-        let target = state.markedText?.range ?? state.selection.range
-        state.markedText = nil
-        state.insert(text, at: Selection(target))
-      }
-    }
   }
 
   /// Handles a key press the way every engine does: the keymap first, then

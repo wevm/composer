@@ -172,6 +172,10 @@ public struct EditorState: Sendable, Equatable {
     /// The ranges the current transform pass is visiting, kept in current
     /// coordinates as transforms edit.
     var pass = DirtyRanges()
+    /// Whether the update typed one character, from the keyboard or an
+    /// input method's commit: input rules convert what is typed, never a
+    /// paste.
+    var isTyping = false
   }
 
   // Safe to share across threads: storage is only mutated when uniquely

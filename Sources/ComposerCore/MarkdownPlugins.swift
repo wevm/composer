@@ -388,11 +388,14 @@ enum MarkdownSupport {
       caretAfter: state.selection.head.offset)
   }
 
-  /// Whether the update's latest edit inserted text ending at `caret`: a
-  /// rule converts what was just typed, not what an edit elsewhere (a
-  /// deletion, or another rule) leaves before the caret.
+  /// Whether the update typed a character and its latest edit inserted text
+  /// ending at `caret`: a rule converts what was just typed, not a paste,
+  /// and not what an edit elsewhere (a deletion, or another rule) leaves
+  /// before the caret.
   static func justTyped(_ state: EditorState, at caret: Int) -> Bool {
-    guard let edit = state.tracking?.edits.last else { return false }
+    guard let tracking = state.tracking, tracking.isTyping, let edit = tracking.edits.last else {
+      return false
+    }
     return edit.replacementLength > 0
       && edit.range.lowerBound.offset + edit.replacementLength == caret
   }

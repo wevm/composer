@@ -426,13 +426,16 @@
     // MARK: Clipboard
 
     open override func paste(_ sender: Any?) { paste(from: .general) }
-    open override func pasteAsPlainText(_ sender: Any?) { paste(from: .general) }
+    /// Paste and Match Style (⌘⌥⇧V): the text as it is, without mapping.
+    open override func pasteAsPlainText(_ sender: Any?) {
+      paste(from: .general, options: PasteOptions(matchesStyle: true))
+    }
     open override func pasteAsRichText(_ sender: Any?) { paste(from: .general) }
 
     /// Pastes a pasteboard's plain text.
-    public func paste(from pasteboard: NSPasteboard) {
+    public func paste(from pasteboard: NSPasteboard, options: PasteOptions = PasteOptions()) {
       guard let string = pasteboard.string(forType: .string) else { return }
-      controller.paste(.plainText(string))
+      controller.paste(.plainText(string), options: options)
     }
 
     /// Copies the selection as plain text, with tokens as their labels. The

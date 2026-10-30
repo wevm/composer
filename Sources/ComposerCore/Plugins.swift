@@ -41,6 +41,7 @@ public struct PluginRegistry: Sendable {
   /// Whether slash commands are on: their trigger is added at the end of
   /// installation, so it sees every plugin's commands.
   public var slashCommandsEnabled = false
+  var paste = PasteConfiguration()
   /// Colors code blocks (see `MarkdownCodeBlocks`).
   public var codeHighlighter: (any CodeHighlighter)?
 

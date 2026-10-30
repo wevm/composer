@@ -515,6 +515,14 @@ These are separate plugins, all in `.chatDefaults`:
 - **Paste a URL over a selection** to make the selection a link.
 - **⌘K link editing**, a headless state with the range, the URL, and `apply` and `remove`. The consumer renders the editor.
 
+Details decided in milestone 7:
+
+- **Autolink** links a bare `https://`, `http://`, or `www.` URL (with a dot after the scheme) when a space is typed after it, without trailing punctuation unless a parenthesis the URL opened closes it; `www.` gets `https://`. Pasted text is autolinked the same way, after any mapping. Only whitespace ends a URL while typing, so `https://x.dev.` doesn't link early.
+- **Input rules convert typing only**: an update that typed one character (from the keyboard or an input method's commit) runs them, and a paste doesn't, so `**b**` pasted with Paste and Match Style stays literal.
+- **Paste** goes through handlers (which may act themselves, as a URL pasted over a selection in one block makes it a link), then mappers (`PasteMapper`, the first that maps the content wins, unless Paste and Match Style), then the plain text, then paste transforms (autolink). `MarkdownPaste` maps plain text whose parse finds any syntax; text that parses to just its own paragraphs goes in as typed, line breaks and all. A fragment of one paragraph goes into the block at the caret; others go in beside it in its container, the first and last paragraphs joining the text around them, and into a code block as plain text. Rich text, HTML, images, and the private document type come with the clipboard work (milestone 8).
+- **⌘K link editing** is headless state, `controller.linkEditing` (the range and the current URL), with `applyLink(_:text:)`, `removeLink()`, and `cancelLinkEditing()`. At a caret in a link it covers the whole link; at a caret elsewhere, applying inserts the URL (or the given text) as a link. Esc or moving the selection closes it (transient state).
+- **`.chatDefaults`** is, so far, `.markdown`, `MarkdownPaste`, `Autolink`, `PasteLinkOverSelection`, and `LinkEditingPlugin`. The keymap and selection toolbar plugins join it as they land.
+
 #### Send
 
 `SendAction` sends a `ComposerMessage`:

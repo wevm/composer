@@ -353,7 +353,7 @@ public struct EmojiShortcodesPlugin: ComposerPlugin {
 
 extension Document {
   /// The plain text of a paragraph's last `limit` units before `position`,
-  /// or `nil` if a token or code is among them.
+  /// from after the last token or code among them.
   func plainTextBefore(_ position: Position, in location: BlockLocation, limit: Int) -> String? {
     guard case .paragraph(let inlines) = block(at: location.path) else { return nil }
     let caret = position.offset - location.range.lowerBound.offset
@@ -367,7 +367,10 @@ extension Document {
       guard offset + length > floor else { continue }
       switch inline {
       case .text(let text, let marks):
-        guard !marks.code else { return nil }
+        guard !marks.code else {
+          result.removeAll()
+          continue
+        }
         var unitOffset = offset
         for unit in text.utf16 {
           if unitOffset >= caret { break }

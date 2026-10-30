@@ -482,10 +482,15 @@
 
     open override func paste(_ sender: Any?) { paste(from: .general) }
 
+    /// Paste and Match Style: the text as it is, without mapping.
+    open override func pasteAndMatchStyle(_ sender: Any?) {
+      paste(from: .general, options: PasteOptions(matchesStyle: true))
+    }
+
     /// Pastes a pasteboard's plain text.
-    public func paste(from pasteboard: UIPasteboard) {
+    public func paste(from pasteboard: UIPasteboard, options: PasteOptions = PasteOptions()) {
       guard let string = pasteboard.string else { return }
-      controller.paste(.plainText(string))
+      controller.paste(.plainText(string), options: options)
     }
 
     /// Copies the selection as plain text, with tokens as their labels.

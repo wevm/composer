@@ -31,6 +31,7 @@ public final class ComposerController {
   @ObservationIgnored public let transforms: [NodeTransform]
   @ObservationIgnored let transientState: [String]
   @ObservationIgnored let stateHooks: [StateHook]
+  @ObservationIgnored let pasteConfiguration: PasteConfiguration
   @ObservationIgnored let didUpdate: [@MainActor @Sendable (ComposerController, Changeset) -> Void]
   /// The suggestion triggers, by character.
   @ObservationIgnored let triggers: [Trigger]
@@ -75,6 +76,7 @@ public final class ComposerController {
     }
     if !registry.triggers.isEmpty { Suggestions.install(in: &registry) }
     self.stateHooks = registry.stateHooks
+    self.pasteConfiguration = registry.paste
     self.didUpdate = registry.didUpdate
     self.triggers = registry.triggers
     self.suggestionSession = state[Suggestions.sessionKey]
