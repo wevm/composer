@@ -84,6 +84,7 @@
     private var fitting: (width: CGFloat, height: CGFloat)?
     private let placeholderLabel = UILabel()
     private var taskTap: UITapGestureRecognizer?
+    private let taskTapDelegate = TaskTapDelegate()
     private var mapper: AttributeMapper
     /// Document positions to storage offsets: tokens draw as several
     /// characters.
@@ -124,6 +125,7 @@
       controller.engine = self
       controller.undoManager = undoManager
       let taskTap = UITapGestureRecognizer(target: self, action: #selector(tapTaskBox(_:)))
+      taskTap.delegate = taskTapDelegate
       addGestureRecognizer(taskTap)
       self.taskTap = taskTap
       addGestureRecognizer(hoverRecognizer)
@@ -460,6 +462,15 @@
     open override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
       if recognizer === taskTap { return taskBox(at: recognizer.location(in: self)) != nil }
       return super.gestureRecognizerShouldBegin(recognizer)
+    }
+
+    /// Lets UIKit's own text taps run alongside the task-box tap, or a tap
+    /// on an unfocused view never focuses it.
+    private final class TaskTapDelegate: NSObject, UIGestureRecognizerDelegate {
+      func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+      ) -> Bool { true }
     }
 
     /// A tap on a task's box checks or unchecks it.
