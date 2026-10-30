@@ -4,8 +4,9 @@ import Foundation
 /// type, so decoding `JSONValue` through it costs a thrown error per failed
 /// guess; this reads each value once.
 struct JSONParser {
-  /// Deeper input is rejected rather than risking the stack.
-  static let maxDepth = 512
+  /// Deeper input is rejected rather than risking the stack: Apple platforms
+  /// give secondary threads 512 KB. Documents nest about 40 levels at most.
+  static let maxDepth = 100
 
   private let bytes: [UInt8]
   private var index = 0

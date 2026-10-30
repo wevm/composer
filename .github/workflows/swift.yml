@@ -29,5 +29,7 @@ jobs:
         run: swift format lint --strict --recursive Sources Tests Package.swift Playground
       - name: Build
         run: swift build --build-tests
+      # Apple platforms give secondary threads 512 KB of stack, and Linux 8 MB;
+      # glibc takes the default from the limit, so deep recursion fails here too.
       - name: Test
-        run: swift test --skip-build
+        run: ulimit -s 512 && swift test --skip-build
