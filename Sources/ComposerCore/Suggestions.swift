@@ -167,7 +167,8 @@ public struct ComposerSuggestions {
   public var anchorRect: CGRect? {
     guard let session, let engine = controller.engine else { return nil }
     let rect = engine.rect(for: session.range)
-    return rect.isNull ? nil : rect
+    // A null rect (no layout yet) has an infinite origin.
+    return rect.origin.x.isFinite ? rect : nil
   }
 
   /// Commits the highlighted item, or the one at `index`.
