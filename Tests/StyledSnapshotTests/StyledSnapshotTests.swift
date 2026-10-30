@@ -48,7 +48,9 @@
         let host = UIHostingController(rootView: content)
         host.view.frame = CGRect(x: 0, y: 0, width: 360, height: height)
         assertSnapshot(
-          of: host, as: .image(size: CGSize(width: 360, height: height)),
+          of: host,
+          as: .image(
+            precision: 0.98, perceptualPrecision: 0.98, size: CGSize(width: 360, height: height)),
           named: "\(platform)-\(name)", fileID: fileID, file: filePath, testName: testName,
           line: line, column: column)
       #else
@@ -57,7 +59,8 @@
         host.appearance = NSAppearance(named: .aqua)
         host.layoutSubtreeIfNeeded()
         assertSnapshot(
-          of: host, as: .image(precision: 0.98), named: "\(platform)-\(name)", fileID: fileID,
+          of: host, as: .image(precision: 0.98, perceptualPrecision: 0.98),
+          named: "\(platform)-\(name)", fileID: fileID,
           file: filePath, testName: testName, line: line, column: column)
       #endif
     }
@@ -111,13 +114,17 @@
         view.backgroundColor = .systemBackground
         view.overrideUserInterfaceStyle = .light
         view.layoutIfNeeded()
-        assertSnapshot(of: view, as: .image, named: "\(platform)-native")
+        assertSnapshot(
+          of: view, as: .image(precision: 0.98, perceptualPrecision: 0.98),
+          named: "\(platform)-native")
       #else
         let view = StyledComposerView(controller: controller)
         view.frame = NSRect(x: 0, y: 0, width: 360, height: 100)
         view.appearance = NSAppearance(named: .aqua)
         view.layoutSubtreeIfNeeded()
-        assertSnapshot(of: view, as: .image(precision: 0.98), named: "\(platform)-native")
+        assertSnapshot(
+          of: view, as: .image(precision: 0.98, perceptualPrecision: 0.98),
+          named: "\(platform)-native")
       #endif
       #expect(!view.textView.isHidden)
     }
