@@ -360,7 +360,9 @@ JSON is the `Codable` form of `Document`, used for drafts, the private pasteboar
 - The document has a top-level `version` integer.
 - Nodes are objects of the form `{ "type", "attrs", … }`.
 - Every atomic node has a required top-level `"text"` field holding its fallback text, for example `"@tom"` for a mention. Each node type's encoder always writes it.
-- A node whose type has no registered plugin decodes to an opaque `UnknownNode`. It keeps its JSON verbatim, renders and exports to markdown as its `text`, and encodes back to the same JSON. If `text` is missing, as in hand-written JSON, the node renders as `[type]`, for example `[poll]`, and its JSON is still kept verbatim. A composer configured with fewer plugins than the one that wrote a draft therefore never destroys content.
+- The field names (decided in milestone 3): blocks are `paragraph` and `quote` with `children`, `codeBlock` with `text` and `attrs.language`, and `list` with `attrs.kind` (`bullet` or `ordered`), `attrs.start`, and `listItem` children with an optional `attrs.checked`. A text node has `text`, `marks` (`bold`, `italic`, `strikethrough`, `code`), and `attrs.href` for a link. An atomic node has `type`, `text`, `label`, and its attributes in `attrs` as strings. `label` is a top-level field rather than an attribute so it can't collide with one.
+- A `version` other than 1 throws. `Document`'s own `Codable` conformance is the schema-free form, so every atomic node decodes as unknown; `JSONCodec(schema:)` keeps typed nodes.
+- A node whose type has no registered plugin decodes to an opaque `UnknownNode`. It keeps its JSON verbatim, renders and exports to markdown as its `text`, and encodes back to the same JSON. If `text` is missing, as in hand-written JSON, the node renders as `[type]`, for example `[poll]`, and its JSON is still kept verbatim. A composer configured with fewer plugins than the one that wrote a draft therefore never destroys content. "Verbatim" is up to number formatting: integers and doubles keep their value, not their spelling.
 
 ## Plugins
 
