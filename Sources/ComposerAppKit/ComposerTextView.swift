@@ -218,6 +218,11 @@
       let range = storageMap.storage(state.selection.range)
       if selectedRange() != range { setSelectedRange(range) }
       if !changeset.edits.isEmpty {
+        // Emptied text keeps the typing attributes of what was removed, such
+        // as a list item's indent, and the caret draws with them.
+        if textStorage.length == 0 {
+          typingAttributes = [.font: textStyles.base, .foregroundColor: textStyles.foreground]
+        }
         syncPlaceholder()
         textDidChangeHeight()
         scrollRangeToVisible(range)

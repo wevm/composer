@@ -498,6 +498,38 @@
       }
     #endif
 
+    #if canImport(AppKit) && !canImport(UIKit)
+      /// Undoing a list item back to an empty composer leaves the caret where
+      /// an empty composer's is, not at the item's indent.
+      @Test func undoingToEmptyPutsTheCaretAtTheStart() {
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.undoManager?.groupsByEvent = false
+        let textView = ComposerTextView(
+          controller: ComposerController { PluginGroup.chatDefaults },
+          frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        window.contentView?.addSubview(textView)
+        window.makeFirstResponder(textView)
+        func caretX() -> CGFloat {
+          var actual = NSRange()
+          let rect = textView.firstRect(
+            forCharacterRange: textView.selectedRange(), actualRange: &actual)
+          return window.convertFromScreen(rect).minX
+        }
+        let empty = caretX()
+        for character in "- a" {
+          textView.insertText(
+            String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        while window.undoManager?.canUndo == true { window.undoManager?.undo() }
+        #expect(textView.controller.markdown == "")
+        #expect(caretX() == empty)
+      }
+    #endif
+
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
       let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))
