@@ -119,7 +119,7 @@
   }
 
   /// Text from storage for the clipboard: tokens become their labels.
-  package func plainText(of text: NSAttributedString) -> String {
+  package func clipboardText(of text: NSAttributedString) -> String {
     var result = ""
     text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) {
       value, run, _ in
