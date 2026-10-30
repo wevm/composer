@@ -94,13 +94,10 @@
     }
   }
 
-  /// Text from storage as document text: line separators become newlines,
-  /// and attachment characters are dropped (tokens don't paste as text).
+  /// Text from storage as document text: attachment characters are dropped
+  /// (tokens don't paste as text).
   package func documentText(_ storageText: String) -> String {
-    guard storageText.contains("\u{2028}") || storageText.contains("\u{FFFC}") else {
-      return storageText
-    }
-    return storageText.replacingOccurrences(of: "\u{2028}", with: "\n")
-      .replacingOccurrences(of: "\u{FFFC}", with: "")
+    guard storageText.contains("\u{FFFC}") else { return storageText }
+    return storageText.replacingOccurrences(of: "\u{FFFC}", with: "")
   }
 #endif

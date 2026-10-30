@@ -72,12 +72,28 @@
     private func drawDecoration(at point: CGPoint) {
       let frame = layoutFragmentFrame
       let indent = styles.indent
-      let height = frame.height - styles.blockSpacing
       if decoration.isCode {
+        // Lines of a code block join into one background, rounded at the
+        // block's top and bottom.
         let x = point.x + CGFloat(decoration.depth) * indent
+        let height = frame.height - (decoration.isLastLine ? styles.blockSpacing : 0)
         let rect = CGRect(x: x, y: point.y, width: frame.width - x + point.x, height: height)
         styles.codeBackground.setFill()
-        bezierPath(roundedRect: rect, radius: 5).fill()
+        let radius: CGFloat = 5
+        bezierPath(roundedRect: rect, radius: radius).fill()
+        if !decoration.isFirstLine {
+          bezierPath(
+            roundedRect: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: radius),
+            radius: 0
+          ).fill()
+        }
+        if !decoration.isLastLine {
+          bezierPath(
+            roundedRect: CGRect(
+              x: rect.minX, y: rect.maxY - radius, width: rect.width, height: radius),
+            radius: 0
+          ).fill()
+        }
       }
       styles.secondary.setFill()
       for level in decoration.quoteLevels {

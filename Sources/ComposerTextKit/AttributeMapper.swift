@@ -1,13 +1,16 @@
 // Attribute mapping: a document's linear form as an attributed string, one
 // character per unit, so a document position is a text storage offset.
 //
-// - Text blocks are separated by "\n", a paragraph break.
-// - A newline inside a paragraph or code block is U+2028 (line separator), so
-//   every text block is one TextKit paragraph.
+// - Text blocks are separated by "\n", and a newline inside a paragraph or
+//   code block is "\n" too, so every line is a TextKit paragraph. (One TextKit
+//   paragraph per block would be simpler, but TextKit 2 lays out a paragraph
+//   whole: a 20k-character pasted block took seconds.)
 // - An atomic or unknown inline node is one attachment character (U+FFFC).
-// - Every character of a block, and the separator after it, carries the
-//   block's paragraph style and `BlockDecoration`, which the layout fragments
-//   draw (list markers, quote bars, code backgrounds).
+// - Every character of a line, and the newline after it, carries the line's
+//   paragraph style and `BlockDecoration`, which says which block and line it
+//   is in. Only a block's last line has the space after the block, and the
+//   layout fragments draw the decoration (list markers on a block's first
+//   line, quote bars, code backgrounds).
 #if canImport(UIKit) || canImport(AppKit)
   import ComposerCore
   #if canImport(UIKit)
@@ -41,8 +44,14 @@
     package let marker: Marker?
     package let markerLevel: Int
     package let isCode: Bool
+    /// Whether this is the block's first line, or its last.
+    package let isFirstLine: Bool
+    package let isLastLine: Bool
 
-    package init(containers: [TextBlock.Container], isCode: Bool) {
+    package init(
+      containers: [TextBlock.Container], isCode: Bool, isFirstLine: Bool = true,
+      isLastLine: Bool = true
+    ) {
       var quoteLevels: [Int] = []
       var marker: Marker?
       var bulletDepth = 0
@@ -68,13 +77,33 @@
       self.marker = marker
       self.markerLevel = max(containers.count - 1, 0)
       self.isCode = isCode
+      self.isFirstLine = isFirstLine
+      self.isLastLine = isLastLine
+    }
+
+    private init(_ other: BlockDecoration, isFirstLine: Bool, isLastLine: Bool) {
+      depth = other.depth
+      quoteLevels = other.quoteLevels
+      marker = other.marker
+      markerLevel = other.markerLevel
+      isCode = other.isCode
+      self.isFirstLine = isFirstLine
+      self.isLastLine = isLastLine
+    }
+
+    /// The decoration of another line of the same block.
+    package func line(first: Bool, last: Bool) -> BlockDecoration {
+      first == isFirstLine && last == isLastLine
+        ? self : BlockDecoration(self, isFirstLine: first, isLastLine: last)
     }
 
     /// Whether a plain layout fragment would draw the block the same.
-    package var isPlain: Bool { quoteLevels.isEmpty && marker == nil && !isCode }
+    package var isPlain: Bool { quoteLevels.isEmpty && markerText == nil && !isCode }
 
+    /// The list marker, on the block's first line.
     package var markerText: String? {
-      switch marker {
+      guard isFirstLine else { return nil }
+      return switch marker {
       case nil: nil
       case .bullet(let depth): ["•", "◦", "▪"][depth % 3]
       case .ordered(let number): "\(number)."
@@ -86,7 +115,8 @@
       guard let other = object as? BlockDecoration else { return false }
       return self === other
         || (depth == other.depth && quoteLevels == other.quoteLevels && marker == other.marker
-          && isCode == other.isCode)
+          && isCode == other.isCode && isFirstLine == other.isFirstLine
+          && isLastLine == other.isLastLine)
     }
 
     override package var hash: Int {
@@ -95,6 +125,8 @@
       hasher.combine(quoteLevels)
       hasher.combine(marker)
       hasher.combine(isCode)
+      hasher.combine(isFirstLine)
+      hasher.combine(isLastLine)
       return hasher.finalize()
     }
   }
@@ -124,9 +156,8 @@
         }
       #else
         nonisolated(unsafe) let drawnText = text
-        nonisolated(unsafe) let fill = background
         image = NSImage(size: size, flipped: true) { rect in
-          fill.setFill()
+          background.setFill()
           NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
           drawnText.draw(at: textOrigin)
           return true
@@ -169,16 +200,35 @@
         let end = block.range.upperBound.offset
         var isCode = false
         if case .code = block.content { isCode = true }
-        let attributes = self.attributes(
-          for: BlockDecoration(containers: containers, isCode: isCode))
+        let breaks = Self.lineBreaks(in: block.content)
+        let decoration = BlockDecoration(
+          containers: containers, isCode: isCode, isLastLine: breaks.isEmpty)
+        let sliceStart = result.length
         let lower = max(start, range.lowerBound)
         let upper = min(end, range.upperBound)
+        let attributes = self.attributes(for: decoration)
         if lower < upper {
           append(block.content, in: lower - start..<upper - start, attributes, to: result)
         }
-        // The separator after the block, which belongs to its paragraph.
+        // The separator after the block, which belongs to its last line.
         if end < documentLength, range.contains(end) {
           result.append(NSAttributedString(string: "\n", attributes: attributes))
+        }
+        guard !breaks.isEmpty else { return }
+        // Lines after the first: each runs to its newline, the last to the
+        // block's end and separator.
+        let sliceEnd = result.length
+        for (index, lineBreak) in breaks.enumerated() {
+          let lineStart = start + lineBreak + 1
+          let lineEnd = index + 1 < breaks.count ? start + breaks[index + 1] + 1 : end + 1
+          let from = max(lineStart, lower) - lower + sliceStart
+          let to = min(lineEnd - lower + sliceStart, sliceEnd)
+          guard from < to else { continue }
+          let line = self.attributes(
+            for: decoration.line(first: false, last: index == breaks.count - 1))
+          result.addAttributes(
+            [.paragraphStyle: line[.paragraphStyle]!, .composerBlock: line[.composerBlock]!],
+            range: NSRange(location: from, length: to - from))
         }
       }
       result.endEditing()
@@ -194,7 +244,7 @@
       style.firstLineHeadIndent = indent
       style.headIndent = indent
       if decoration.isCode { style.tailIndent = -8 }
-      style.paragraphSpacing = styles.blockSpacing
+      style.paragraphSpacing = decoration.isLastLine ? styles.blockSpacing : 0
       let attributes: [NSAttributedString.Key: Any] = [
         .font: decoration.isCode ? styles.code : styles.base,
         .foregroundColor: styles.foreground,
@@ -212,7 +262,9 @@
       switch content {
       case .code(_, let text):
         result.append(
-          NSAttributedString(string: Self.slice(text, local), attributes: attributes))
+          NSAttributedString(
+            string: local == 0..<text.utf16.count ? text : Self.slice(text, local),
+            attributes: attributes))
       case .paragraph(let inlines):
         var offset = 0
         for inline in inlines {
@@ -228,7 +280,7 @@
           case .text(let text, let marks):
             let piece =
               lower == offset && upper == offset + length
-              ? Self.storageText(text) : Self.slice(text, lower - offset..<upper - offset)
+              ? text : Self.slice(text, lower - offset..<upper - offset)
             result.append(
               NSAttributedString(string: piece, attributes: self.attributes(attributes, marks)))
           case .node(let node):
@@ -294,16 +346,32 @@
       return font
     }
 
-    /// Text as it is stored: newlines become line separators.
-    package static func storageText(_ text: String) -> String {
-      text.contains("\n") ? text.replacingOccurrences(of: "\n", with: "\u{2028}") : text
+    /// The offsets of the newlines in a text block, which end its lines.
+    private static func lineBreaks(in content: TextBlock.Content) -> [Int] {
+      var breaks: [Int] = []
+      func scan(_ text: String, from offset: Int) {
+        var index = offset
+        for unit in text.utf16 {
+          if unit == 0x0A { breaks.append(index) }
+          index += 1
+        }
+      }
+      switch content {
+      case .code(_, let text):
+        scan(text, from: 0)
+      case .paragraph(let inlines):
+        var offset = 0
+        for inline in inlines {
+          if case .text(let text, _) = inline { scan(text, from: offset) }
+          offset += inline.length
+        }
+      }
+      return breaks
     }
 
-    /// UTF-16 units `local` of `text`, as stored.
+    /// UTF-16 units `local` of `text`.
     private static func slice(_ text: String, _ local: Range<Int>) -> String {
-      storageText(
-        (text as NSString).substring(with: NSRange(location: local.lowerBound, length: local.count))
-      )
+      (text as NSString).substring(with: NSRange(location: local.lowerBound, length: local.count))
     }
   }
 #endif

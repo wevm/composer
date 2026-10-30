@@ -21,9 +21,10 @@
     }
 
     /// Applies an update's edits, as one replacement of the span they cover.
-    /// When the edit changes block structure (it crosses or removes a block
-    /// separator), the span grows to whole blocks, so every character of a
-    /// paragraph carries its block's paragraph style.
+    /// When the edit adds or removes a newline (a block separator or a line
+    /// break) or spans blocks, the span grows to whole blocks, because which
+    /// lines are first and last in a block, and which blocks follow in a list,
+    /// change their attributes.
     package static func apply(
       _ changeset: Changeset, document: Document, to storage: NSTextStorage,
       mapper: AttributeMapper
@@ -38,14 +39,17 @@
         return
       }
       let string = storage.string as NSString
-      let removesSeparator =
+      let removesNewline =
         string.rangeOfCharacter(
           from: separator, options: .literal,
           range: NSRange(location: old.lowerBound, length: old.count)
         ).location != NSNotFound
       let first = document.textBlock(containing: Position(new.lowerBound))
       let crossesBlocks = first.map { $0.range.upperBound.offset < new.upperBound } ?? true
-      if removesSeparator || crossesBlocks {
+      var replacement = mapper.attributedString(for: document, in: new, documentLength: length)
+      let addsNewline =
+        (replacement.string as NSString).rangeOfCharacter(from: separator).location != NSNotFound
+      if removesNewline || addsNewline || crossesBlocks {
         let lower = first?.range.lowerBound.offset ?? 0
         // Blocks after the edit inside containers restyle too: inserting or
         // removing a list item renumbers the items after it.
@@ -66,11 +70,11 @@
         let grow = upper - new.upperBound
         new = lower..<upper
         old = lower..<min(old.upperBound + grow, storage.length)
+        replacement = mapper.attributedString(for: document, in: new, documentLength: length)
       }
       storage.beginEditing()
       storage.replaceCharacters(
-        in: NSRange(location: old.lowerBound, length: old.count),
-        with: mapper.attributedString(for: document, in: new, documentLength: length))
+        in: NSRange(location: old.lowerBound, length: old.count), with: replacement)
       storage.endEditing()
     }
 

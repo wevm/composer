@@ -36,6 +36,8 @@
     /// Set while a key event is handled, when a selection change that keeps
     /// one end is an extension from that end.
     private var isHandlingKey = false
+    /// The modifiers of the key event being handled.
+    private var keyModifiers: KeyModifiers = []
     private var renderedMarkedText: MarkedText?
 
     public init(
@@ -237,9 +239,13 @@
     /// method.
     open override func keyDown(with event: NSEvent) {
       isHandlingKey = true
-      defer { isHandlingKey = false }
+      keyModifiers = KeyModifiers(event.modifierFlags)
+      defer {
+        isHandlingKey = false
+        keyModifiers = []
+      }
       if !hasMarkedText(), let key = Key(event: event) {
-        let modifiers = KeyModifiers(event.modifierFlags)
+        let modifiers = keyModifiers
         if Self.editingKeys.contains(key) {
           if controller.handleKeyPress(key, modifiers: modifiers) { return }
           if key == .return || key == .tab { return }
@@ -266,11 +272,12 @@
     }
 
     /// Editing commands from key bindings and input methods go to the
-    /// controller, as the keys they stand for.
+    /// controller, as the keys they stand for. AppKit binds ⇧↩ to
+    /// `insertNewline:` too, so ↩ keeps the key event's ⇧.
     open override func doCommand(by selector: Selector) {
       switch selector {
       case #selector(insertNewline(_:)):
-        controller.handleKeyPress(.return)
+        controller.handleKeyPress(.return, modifiers: keyModifiers.intersection(.shift))
       case #selector(insertLineBreak(_:)), #selector(insertNewlineIgnoringFieldEditor(_:)):
         controller.handleKeyPress(.return, modifiers: .shift)
       case #selector(insertTab(_:)), #selector(insertTabIgnoringFieldEditor(_:)):
