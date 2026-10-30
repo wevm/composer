@@ -278,12 +278,12 @@
     }
 
     /// A menu item that runs a closure.
-    private final class MenuAction: NSMenuItem {
+    @MainActor private final class MenuAction: NSMenuItem {
       private let run: @MainActor () -> Void
 
       init(_ item: ComposerMenuItem) {
         run = item.action
-        super.init(title: item.title, action: #selector(perform), keyEquivalent: "")
+        super.init(title: item.title, action: #selector(runItem), keyEquivalent: "")
         target = self
         if let image = item.systemImage {
           self.image = NSImage(systemSymbolName: image, accessibilityDescription: nil)
@@ -292,7 +292,7 @@
 
       required init(coder: NSCoder) { fatalError("not used") }
 
-      @objc private func perform() { run() }
+      @objc private func runItem() { run() }
     }
 
     private struct ContentView: NSViewRepresentable {
