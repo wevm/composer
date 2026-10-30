@@ -13,7 +13,6 @@
 //   line, quote bars, code backgrounds).
 #if canImport(UIKit) || canImport(AppKit)
   import ComposerCore
-  import Synchronization
   #if canImport(UIKit)
     import UIKit
   #else
@@ -172,7 +171,9 @@
     }
   }
 
-  /// Renders documents, or spans of them, into attributed strings.
+  /// Renders documents, or spans of them, into attributed strings. Main
+  /// actor, like the text views it serves, so views can share derived fonts.
+  @MainActor
   package final class AttributeMapper {
     package let styles: TextStyles
     package let schema: Schema
@@ -328,7 +329,7 @@
       // Deriving a font is slow enough to show in mount time, so views with
       // the same styles share derived fonts.
       let shared = SharedFontKey(base: styles.base, code: styles.code, traits: key)
-      if let font = Self.sharedFonts.withLock({ $0[shared] }) {
+      if let font = Self.sharedFonts[shared] {
         fonts[key] = font
         return font
       }
@@ -351,17 +352,17 @@
         #endif
       }
       fonts[key] = font
-      Self.sharedFonts.withLock { $0[shared] = font }
+      Self.sharedFonts[shared] = font
       return font
     }
 
-    private struct SharedFontKey: Hashable, @unchecked Sendable {
+    private struct SharedFontKey: Hashable {
       var base: PlatformFont
       var code: PlatformFont
       var traits: Int
     }
 
-    private static let sharedFonts = Mutex<[SharedFontKey: PlatformFont]>([:])
+    private static var sharedFonts: [SharedFontKey: PlatformFont] = [:]
 
     /// The offsets of the newlines in a text block, which end its lines.
     private static func lineBreaks(in content: TextBlock.Content) -> [Int] {

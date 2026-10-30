@@ -8,6 +8,7 @@
 
   /// Applies changesets to a text storage that mirrors a document (see
   /// `AttributeMapper`), touching only the edited span.
+  @MainActor
   package enum ChangesetApplier {
     private static let separator = CharacterSet(charactersIn: "\n")
 

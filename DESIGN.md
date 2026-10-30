@@ -666,6 +666,15 @@ Details decided in milestone 4 (the AppKit engine, shared through `ComposerTextK
 - **Selection direction:** AppKit doesn't say which end of a selection moves. A change made from the keyboard that keeps one end of the previous selection keeps it as the anchor (⇧← makes a backward selection); other selections run forward.
 - **Copy** writes plain text for now, with tokens as their labels. The three representations in [Copy](#copy) come with the clipboard work.
 
+Details decided in milestone 5 (the UIKit engine, on the same `ComposerTextKit` mapping and applier):
+
+- **Input** comes through `UITextInput` as the keyboard calls it: `insertText`, `deleteBackward`, `setMarkedText`, `unmarkText`, and `replace(_:withText:)` (autocorrection, the candidate bar, dictation) go to the controller. The keyboard's Return and Tab arrive as `insertText("\n")` and `insertText("\t")` and run as those keys, the keymap first. The view is its own `UITextViewDelegate`, which turns any other edit UIKit proposes (drops, Writing Tools) into input and reports every selection change.
+- **The input system is told about changes it didn't ask for** (`inputDelegate` `textWillChange`/`textDidChange` and the selection equivalents) around every changeset applied outside a keyboard call, such as a transform on paste or an undo, so autocorrection and composition stay in step.
+- **Hardware keys** are `UIKeyCommand`s built from the keymap each time UIKit asks, with discoverability titles for the iPad shortcut overlay, plus ⇧↩ (a line break) and ⌦. Bindings on unmodified printable keys are left to typing. A command applies (`canPerformAction`) only while a binding for its key applies in the current state, so ↑ falls through to UIKit's caret movement unless, say, suggestions are open. A selection change inside `pressesBegan` counts as from the keyboard for selection direction.
+- **Undo** registers with an `UndoManager` the view owns, not `UITextView`'s, which collects UIKit's own text-editing registrations.
+- **The keyboard accessory slot** is `ComposerTextView.keyboardAccessoryView`, the view's `inputAccessoryView`, reloaded while focused. The slot as data on the controller comes with the other slots.
+- **No platform differences yet.** Both engines do the same thing for every key the conformance suite presses: ↩ makes a new block on both until the Return and send rules in [Return](#return) land with their plugin, so the conformance allowlist is still empty.
+
 ## SwiftUI: `ComposerSwiftUI`
 
 A thin binding: representables around the native views, plus compound primitives in the `Composer` namespace that share context through the environment.
@@ -884,7 +893,7 @@ let session = Session {
 Conformance details decided in milestone 4:
 
 - A step is `Type` (characters one at a time, through the text input client; a newline is a press of ↩), `Marked(stages…, committing:)` (each stage becomes the marked text, then the commit replaces it, or `nil` leaves the composition open), `Press(key, modifiers:)` (a key event; not `Key`, which is Core's key type), `Paste`, `Select` (forward only, since text views don't expose direction), `Undo`, and `Redo`.
-- `ControllerDriver` is the reference: it sends steps straight to the controller, with ← and → moving by character or node as text views do. The native drivers run the same steps on a real text view in an offscreen window. `firstDivergence` compares the two after every step and reports the first step where the states differ, or where the engine's text storage differs from a fresh rendering of the document, which is what catches applier bugs. The allowlist is a list of named normalizations applied to both states; it is empty until the platform-specific Return and send rules land with their plugins.
+- `ControllerDriver` is the reference: it sends steps straight to the controller, with ← and → moving by character or node as text views do. The native drivers run the same steps on a real text view in an offscreen window. `AppKitDriver` sends typing and marked text through the text input client methods and keys as key events. `UIKitDriver` sends typing, Return, Tab, ⌫, and marked text through the `UITextInput` methods the keyboard calls, other keys through the view's key commands, and ← and → as UIKit moves the caret, by the text input tokenizer's characters. `NativeDriver` names the platform's driver, so one suite runs on both. `firstDivergence` compares the two after every step and reports the first step where the states differ, or where the engine's text storage differs from a fresh rendering of the document, which is what catches applier bugs. The allowlist is a list of named normalizations applied to both states; it is empty until the platform-specific Return and send rules land with their plugins.
 
 ### Performance
 

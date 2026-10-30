@@ -399,7 +399,8 @@
       case .return: "\r"
       case .tab: "\t"
       case .escape: UIKeyCommand.inputEscape
-      case .delete: "\u{8}"
+      // ⌦ first: UIKit may spell it the same as ⌫.
+      case .delete: UIKeyCommand.inputDelete == "\u{8}" ? nil : "\u{8}"
       case .forwardDelete: UIKeyCommand.inputDelete
       case .upArrow: UIKeyCommand.inputUpArrow
       case .downArrow: UIKeyCommand.inputDownArrow
@@ -417,8 +418,9 @@
     /// of UIKit's input constants share a value.)
     public init?(keyCommandInput input: String) {
       let special: [(String, Key)] = [
-        ("\r", .return), ("\t", .tab), (UIKeyCommand.inputEscape, .escape), ("\u{8}", .delete),
-        (UIKeyCommand.inputDelete, .forwardDelete), (UIKeyCommand.inputUpArrow, .upArrow),
+        ("\r", .return), ("\t", .tab), (UIKeyCommand.inputEscape, .escape),
+        (UIKeyCommand.inputDelete, .forwardDelete), ("\u{8}", .delete),
+        (UIKeyCommand.inputUpArrow, .upArrow),
         (UIKeyCommand.inputDownArrow, .downArrow), (UIKeyCommand.inputLeftArrow, .leftArrow),
         (UIKeyCommand.inputRightArrow, .rightArrow), (UIKeyCommand.inputHome, .home),
         (UIKeyCommand.inputEnd, .end), (UIKeyCommand.inputPageUp, .pageUp),
