@@ -342,7 +342,7 @@
     open override func copy(_ sender: Any?) {
       let range = selectedRange
       guard range.length > 0 else { return }
-      UIPasteboard.general.string = plainText(of: textStorage.attributedSubstring(from: range))
+      UIPasteboard.general.string = clipboardText(of: textStorage.attributedSubstring(from: range))
     }
 
     open override func cut(_ sender: Any?) {

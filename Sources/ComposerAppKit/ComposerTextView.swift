@@ -310,7 +310,7 @@
       guard range.length > 0, let textStorage else { return }
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(
-        plainText(of: textStorage.attributedSubstring(from: range)), forType: .string)
+        clipboardText(of: textStorage.attributedSubstring(from: range)), forType: .string)
     }
 
     open override func cut(_ sender: Any?) {
