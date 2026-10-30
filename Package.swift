@@ -32,8 +32,10 @@ let package = Package(
     .target(name: "ComposerUIKit", dependencies: ["ComposerCore", "ComposerTextKit"]),
     .target(name: "ComposerAppKit", dependencies: ["ComposerCore", "ComposerTextKit"]),
     .target(name: "ComposerSwiftUI", dependencies: ["ComposerCore"] + nativeEngines),
+    // The String Catalog holds the labels the reference design shows.
     .target(
-      name: "ComposerStyled", dependencies: ["ComposerCore", "ComposerSwiftUI"] + nativeEngines),
+      name: "ComposerStyled", dependencies: ["ComposerCore", "ComposerSwiftUI"] + nativeEngines,
+      resources: [.process("Resources")]),
     // The session format and assertions build everywhere; the native session
     // drivers are Apple-only.
     .target(name: "ComposerTesting", dependencies: ["ComposerCore"] + nativeEngines),

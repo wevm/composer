@@ -1,0 +1,48 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%lld characters left" : {
+      "comment" : "The length counter, near a limit.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld characters left" } }
+      }
+    },
+    "%lld characters over" : {
+      "comment" : "The length counter, past a soft limit.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld characters over" } }
+      }
+    },
+    "Cancel" : {
+      "comment" : "Clears the reply or edit context.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } }
+      }
+    },
+    "Editing message" : {
+      "comment" : "The header while editing a sent message.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Editing message" } }
+      }
+    },
+    "Message" : {
+      "comment" : "The composer's placeholder.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Message" } }
+      }
+    },
+    "Remove" : {
+      "comment" : "Removes an attachment from the tray.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove" } }
+      }
+    },
+    "Replying" : {
+      "comment" : "The header while replying to a message.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Replying" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

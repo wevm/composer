@@ -785,6 +785,13 @@ Details decided in milestone 6:
 
 The reference design covers both SwiftUI and native (UIKit and AppKit) in v1. It is built only from the public styles, which proves that surface is enough. It owns the String Catalog for the labels its design shows (Send, Save, Attach, …). Accessibility labels for nodes are not in it; each plugin's module localizes those (see [Accessibility](#accessibility-and-platform-features)).
 
+Details decided in milestone 10:
+
+- SwiftUI: `StyledComposer(controller)` composes the public slots (Suggestions, Header, Attachments, the leading and trailing Actions around the Input in a rounded field, and a Footer length counter shown from 90% of a `MaxLength` limit) and sets three public styles, `.styled` for `ComposerActionStyle`, `AttachmentStyle`, and `SuggestionItemStyle`. Each piece (`StyledContextBanner`, `StyledLengthCounter`, the styles) is public, so an app can take parts of it. `StyledMessage(document, schema:)` is `Composer.Content` with hover cards: `StyledLinkTooltip` for links and `StyledUserCard` (an example) for mentions, or a `card` closure of the app's own.
+- Native: `StyledComposerView` (`UIView` and `NSView`) has the banner, the actions, and the input; it follows the controller with Observation, so it uses only the controller's public observed properties. It doesn't render the suggestions list or the tray yet; a native app renders those from the controller's state, as the headless layer intends.
+- Core's catalog keeps the action labels (Send, Save, Attach), because `SendAction` and `AttachmentPicker` are in Core and a headless consumer needs them labeled; `ComposerStyled`'s catalog has the strings only its design shows (the banner, the counter, the placeholder, Remove, Cancel).
+- Snapshots are recorded on the CI runners, which are the only Apple machines in the loop: a run without references fails, CI uploads what it recorded as an artifact, and the reviewed images are committed.
+
 ## Platform behavior
 
 Defaults are expressed as per-platform configuration in Core, and all of them can be overridden. These are the intended differences, and they are listed in the conformance allowlist.

@@ -28,6 +28,15 @@ jobs:
       - run: swift --version
       - name: Build and test (macOS)
         run: swift test --skip PerformanceTests
+      # New snapshot references, recorded where none exist, to review and
+      # commit.
+      - name: Upload recorded snapshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshots-macos
+          path: Tests/StyledSnapshotTests/__Snapshots__
+          if-no-files-found: ignore
       # Alone, so other tests running in parallel don't skew the timings.
       - name: Performance budgets (macOS)
         run: swift test --skip-build --filter PerformanceTests
@@ -47,6 +56,15 @@ jobs:
           echo "device=$device" >> "$GITHUB_ENV"
           xcodebuild test -scheme Composer-Package -destination "id=$device" -skipPackagePluginValidation \
             -skip-testing:PerformanceTests
+      # New snapshot references, recorded where none exist, to review and
+      # commit.
+      - name: Upload recorded snapshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshots-ios
+          path: Tests/StyledSnapshotTests/__Snapshots__
+          if-no-files-found: ignore
       # Alone and serially, on the warmed-up simulator, so other tests don't
       # skew the timings.
       - name: Performance budgets (iOS Simulator)

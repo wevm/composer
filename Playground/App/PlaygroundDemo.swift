@@ -1,3 +1,4 @@
+import ComposerStyled
 import ComposerSwiftUI
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct PlaygroundDemo: View {
   @State private var model = DemoModel()
   @State private var readout = Readout.markdown
   @State private var isExpanded = false
+  @State private var isStyled = false
   @FocusState private var isFocused: Bool
 
   private var controller: ComposerController { model.controller }
@@ -36,7 +38,38 @@ struct PlaygroundDemo: View {
       .font(.callout)
       .foregroundStyle(.secondary)
       TranscriptView(model: model)
-      Composer.Root(controller) {
+      if isStyled {
+        StyledComposer(controller, isExpanded: $isExpanded)
+          .focused($isFocused)
+      } else {
+        headless
+      }
+      HStack {
+        Picker("Readout", selection: $readout) {
+          ForEach(Readout.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        Spacer()
+        Toggle("Styled", isOn: $isStyled).fixedSize()
+        Toggle("Expanded", isOn: $isExpanded).fixedSize()
+      }
+      if !isExpanded {
+        ReadoutView(controller: controller, readout: readout)
+      }
+    }
+    .padding(16)
+    .onAppear { isFocused = true }
+    #if os(macOS)
+      .frame(minWidth: 560, minHeight: 520)
+    #endif
+  }
+
+  /// The composer built from the headless primitives.
+  private var headless: some View {
+    Composer.Root(controller) {
+      VStack(alignment: .leading, spacing: 12) {
         Composer.Suggestions()
           .padding(4)
           .background(.background, in: .rect(cornerRadius: 8))
@@ -77,25 +110,7 @@ struct PlaygroundDemo: View {
             .foregroundStyle(state[MaxLength.statusKey]?.isOver == true ? .red : .secondary)
         }
       }
-      HStack {
-        Picker("Readout", selection: $readout) {
-          ForEach(Readout.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        Spacer()
-        Toggle("Expanded", isOn: $isExpanded).fixedSize()
-      }
-      if !isExpanded {
-        ReadoutView(controller: controller, readout: readout)
-      }
     }
-    .padding(16)
-    .onAppear { isFocused = true }
-    #if os(macOS)
-      .frame(minWidth: 560, minHeight: 520)
-    #endif
   }
 
   #if os(iOS)
@@ -211,7 +226,9 @@ struct PlaygroundDemo: View {
         controller.addAttachments([Attachment(payload: "photo", name: "photo.png")])
       }
       MaxLength(500)
+      DraftPersistence()
     }
+    DraftPersistence.restore(into: controller)
   }
 
   func reply(to message: Message) {
@@ -243,7 +260,7 @@ struct TranscriptView: View {
           ForEach(model.messages) { message in
             HStack(alignment: .top) {
               VStack(alignment: .leading, spacing: 2) {
-                Text(message.markdown)
+                StyledMessage(message.document, schema: model.controller.schema)
                 if !message.attachments.isEmpty {
                   Label(message.attachments.joined(separator: ", "), systemImage: "paperclip")
                     .font(.caption)
@@ -295,5 +312,27 @@ struct ReadoutView: View {
       else { return "" }
       return String(decoding: pretty, as: UTF8.self)
     }
+  }
+}
+
+/// Keeps the draft across launches: saved as JSON on every change, and
+/// restored when the composer is created.
+struct DraftPersistence: ComposerPlugin {
+  static let key = "dev.wevm.composer.playground.draft"
+
+  func register(in registry: inout PluginRegistry) {
+    let schema = registry.schema
+    registry.onDidUpdate { controller, changeset in
+      guard !changeset.edits.isEmpty else { return }
+      let data = try? JSONCodec(schema: schema).encode(controller.document)
+      UserDefaults.standard.set(controller.document.isEmpty ? nil : data, forKey: Self.key)
+    }
+  }
+
+  @MainActor static func restore(into controller: ComposerController) {
+    guard let data = UserDefaults.standard.data(forKey: key),
+      let document = try? JSONCodec(schema: controller.schema).decode(data)
+    else { return }
+    controller.setDocument(document)
   }
 }
