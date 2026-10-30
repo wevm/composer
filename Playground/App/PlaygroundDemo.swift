@@ -1,3 +1,4 @@
+import ComposerCore
 import ComposerStyled
 import ComposerSwiftUI
 import SwiftUI
@@ -178,7 +179,7 @@ struct PlaygroundDemo: View {
 @MainActor @Observable final class DemoModel {
   struct Message: Identifiable {
     let id: String
-    var document: Document
+    var document: ComposerCore.Document
     var markdown: String
     var attachments: [String]
   }

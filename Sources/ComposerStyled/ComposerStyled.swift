@@ -2,6 +2,7 @@
 // its labels. Built only from the public styles and slots, which proves they
 // are enough. Empty off Apple platforms.
 #if canImport(SwiftUI) && (canImport(UIKit) || canImport(AppKit))
+  import ComposerCore
   import ComposerSwiftUI
   import SwiftUI
 
@@ -198,13 +199,13 @@
   /// URL as a tooltip, and for a mention, an example user card. Pass
   /// `card` to render your own for other tokens.
   public struct StyledMessage<Card: View>: View {
-    private let document: Document
+    private let document: ComposerCore.Document
     private let schema: Schema
     private let card: (AtomicNode) -> Card
     @State private var hovered: HoverTarget?
 
     public init(
-      _ document: Document, schema: Schema = Schema(),
+      _ document: ComposerCore.Document, schema: Schema = Schema(),
       @ViewBuilder card: @escaping (AtomicNode) -> Card
     ) {
       self.document = document
@@ -234,7 +235,7 @@
   }
 
   extension StyledMessage where Card == StyledUserCard {
-    public init(_ document: Document, schema: Schema = Schema()) {
+    public init(_ document: ComposerCore.Document, schema: Schema = Schema()) {
       self.init(document, schema: schema) { StyledUserCard(node: $0) }
     }
   }

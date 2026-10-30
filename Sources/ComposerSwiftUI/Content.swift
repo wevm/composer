@@ -2,6 +2,7 @@
 // by default and with the native `ComposerContentView` (TextKit) when hover
 // or context menus need it.
 #if canImport(SwiftUI) && (canImport(UIKit) || canImport(AppKit))
+  import ComposerCore
   import SwiftUI
   #if canImport(UIKit)
     import ComposerUIKit
@@ -87,13 +88,13 @@
       @Environment(\.composerNodeMenu) private var nodeMenu
       @Environment(\.composerTokenStyles) private var tokenStyles
       @Environment(\.openURL) private var openURL
-      private let document: Document
+      private let document: ComposerCore.Document
       private let schema: Schema
 
       /// - Parameter schema: the node types the document uses, for their
       ///   fallback text and token styles: an input's `controller.schema`,
       ///   or `Schema(plugins:)`.
-      public init(_ document: Document, schema: Schema = Schema()) {
+      public init(_ document: ComposerCore.Document, schema: Schema = Schema()) {
         self.document = document
         self.schema = schema
       }
@@ -175,7 +176,7 @@
   }
 
   @MainActor private func configure(
-    _ view: ComposerContentView, document: Document, tokenStyles: TokenStyles,
+    _ view: ComposerContentView, document: ComposerCore.Document, tokenStyles: TokenStyles,
     tapNode: (@MainActor (AtomicNode) -> Void)?, hoverNode: (@MainActor (HoverTarget?) -> Void)?,
     nodeMenu: (@MainActor (HoverTarget) -> [ComposerMenuItem])?, openURL: OpenURLAction,
     coordinator: ContentCoordinator
@@ -237,7 +238,7 @@
     }
 
     private struct ContentView: UIViewRepresentable {
-      let document: Document
+      let document: ComposerCore.Document
       let schema: Schema
       let tokenStyles: TokenStyles
       let tapNode: (@MainActor (AtomicNode) -> Void)?
@@ -296,7 +297,7 @@
     }
 
     private struct ContentView: NSViewRepresentable {
-      let document: Document
+      let document: ComposerCore.Document
       let schema: Schema
       let tokenStyles: TokenStyles
       let tapNode: (@MainActor (AtomicNode) -> Void)?
