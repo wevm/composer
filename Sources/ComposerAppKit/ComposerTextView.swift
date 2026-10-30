@@ -593,8 +593,10 @@
 
     // MARK: Undo
 
+    /// Not `super`'s: `NSTextView` has none while `allowsUndo` is false, and
+    /// the controller registers undo itself.
     open override var undoManager: UndoManager? {
-      composerUndoManager ?? super.undoManager
+      composerUndoManager ?? window?.undoManager
     }
 
     open override func viewDidMoveToWindow() {

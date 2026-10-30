@@ -437,6 +437,30 @@
       #endif
     }
 
+    #if canImport(AppKit) && !canImport(UIKit)
+      /// Without `composerUndoManager`, undo registers with the window's
+      /// manager, so the window's Undo (⌘Z in the Edit menu) undoes a cut.
+      @Test func undoUsesTheWindowsUndoManagerByDefault() {
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.undoManager?.groupsByEvent = false
+        let textView = ComposerTextView(controller: ComposerController(), frame: window.frame)
+        window.contentView?.addSubview(textView)
+        textView.insertText("hello", replacementRange: NSRange(location: NSNotFound, length: 0))
+        textView.selectAll(nil)
+        textView.cut(nil)
+        #expect(textView.controller.markdown == "")
+        let undo = Selector(("undo:"))
+        #expect(
+          window.validateUserInterfaceItem(NSMenuItem(title: "", action: undo, keyEquivalent: "")))
+        window.tryToPerform(undo, with: nil)
+        #expect(textView.controller.markdown == "hello")
+      }
+    #endif
+
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
       let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))
