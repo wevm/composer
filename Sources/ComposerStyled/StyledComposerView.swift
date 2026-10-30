@@ -83,6 +83,9 @@
       suggestionsPanel.backgroundColor = .secondarySystemBackground
       suggestionsPanel.layer.cornerRadius = 12
       suggestionsPanel.addSubview(suggestionsList)
+      // Hidden until there is something to show.
+      suggestionsPanel.isHidden = true
+      trayScroll.isHidden = true
       tray.axis = .horizontal
       tray.spacing = 8
       tray.translatesAutoresizingMaskIntoConstraints = false
@@ -111,7 +114,8 @@
       NSLayoutConstraint.activate([
         column.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
         column.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-        column.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+        // Extra height stays above the composer, as at the bottom of a chat.
+        column.topAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.topAnchor),
         column.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
       ])
     }
@@ -353,6 +357,9 @@
       suggestionsList.layer?.borderColor = NSColor.separatorColor.cgColor
       tray.orientation = .horizontal
       tray.spacing = 8
+      // Hidden until there is something to show.
+      suggestionsList.isHidden = true
+      tray.isHidden = true
       let column = NSStackView(views: [suggestionsList, bannerRow, tray, row])
       column.orientation = .vertical
       column.alignment = .leading
@@ -362,7 +369,8 @@
       NSLayoutConstraint.activate([
         column.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
         column.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        column.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+        // Extra height stays above the composer, as at the bottom of a chat.
+        column.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
         column.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         row.widthAnchor.constraint(equalTo: column.widthAnchor),
         bannerRow.widthAnchor.constraint(equalTo: column.widthAnchor),
