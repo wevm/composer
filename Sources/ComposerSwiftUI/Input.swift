@@ -57,12 +57,18 @@
           )
           // A new controller is a new text view.
           .id(ObjectIdentifier(controller))
+          // Flexible: an HStack measures its children's maximum width with
+          // an infinite proposal, which the representable can't answer with
+          // a width of its own (it answered its current one, so an empty
+          // input stayed narrow). The frame takes the space and proposes it.
+          .frame(maxWidth: .infinity)
         #else
           InputView(
             controller: controller, placeholder: placeholder.map { String(localized: $0) },
             lines: lines, isExpanded: isExpanded, tokenStyles: tokenStyles
           )
           .id(ObjectIdentifier(controller))
+          .frame(maxWidth: .infinity)
         #endif
       }
     }
