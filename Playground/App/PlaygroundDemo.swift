@@ -51,8 +51,8 @@ struct PlaygroundDemo: View {
       }
     }
     .padding(16)
-    // Docked, the composer sits at the bottom, and on iOS on top of the
-    // keyboard while it is open: the bottom inset follows the keyboard.
+    // Docked (iOS), the composer sits at the bottom, on top of the keyboard
+    // while it is open: the bottom inset follows the keyboard.
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if isDocked {
         composer
@@ -105,7 +105,9 @@ struct PlaygroundDemo: View {
     HStack {
       Toggle("Styled", isOn: $isStyled)
       Toggle("Expanded", isOn: $isExpanded)
-      Toggle("Docked", isOn: $isDocked)
+      #if os(iOS)
+        Toggle("Docked", isOn: $isDocked)
+      #endif
     }
     .toggleStyle(.button)
     .buttonStyle(.bordered)
