@@ -237,12 +237,18 @@
     }
   }
 
+  #if canImport(UIKit)
+    typealias EditActions = NSTextStorage.EditActions
+  #else
+    typealias EditActions = NSTextStorageEditActions
+  #endif
+
   /// Records the character ranges a text storage edits.
   final class EditRecorder: NSObject, NSTextStorageDelegate {
     var edits: [NSRange] = []
 
     func textStorage(
-      _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+      _ textStorage: NSTextStorage, didProcessEditing editedMask: EditActions,
       range editedRange: NSRange, changeInLength delta: Int
     ) {
       if editedMask.contains(.editedCharacters) { edits.append(editedRange) }
