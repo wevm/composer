@@ -165,6 +165,38 @@
     }
 
     private func styles(of fragment: DecoratedLayoutFragment) -> TextStyles { fragment.styles }
+
+    /// The storage offset of the character drawn at `point`, in text
+    /// container coordinates, or `nil` if no character is there (past a
+    /// line's end, or between lines).
+    package func characterOffset(at point: CGPoint) -> Int? {
+      guard let fragment = textLayoutFragment(for: point), let contentManager = textContentManager
+      else { return nil }
+      let frame = fragment.layoutFragmentFrame
+      let start = contentManager.offset(
+        from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
+      for line in fragment.textLineFragments {
+        let bounds = line.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY)
+        guard point.y >= bounds.minY, point.y < bounds.maxY else { continue }
+        let local = CGPoint(x: point.x - bounds.minX, y: point.y - bounds.minY)
+        let range = line.characterRange
+        guard range.length > 0 else { return nil }
+        // The boundary nearest the point, then the character on the point's
+        // side of it.
+        let boundary = line.characterIndex(for: local)
+        var index = boundary
+        if index > range.location {
+          let before = line.locationForCharacter(at: index)
+          if local.x < before.x { index -= 1 }
+        }
+        index = min(max(index, range.location), NSMaxRange(range) - 1)
+        let lower = line.locationForCharacter(at: index).x
+        let upper = line.locationForCharacter(at: index + 1).x
+        guard local.x >= min(lower, upper), local.x <= max(lower, upper) else { return nil }
+        return start + index
+      }
+      return nil
+    }
   }
 
   extension NSTextContentManager {

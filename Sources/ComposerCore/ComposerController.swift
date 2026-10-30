@@ -52,6 +52,9 @@ public final class ComposerController {
   @ObservationIgnored let stateHooks: [StateHook]
   @ObservationIgnored let pasteConfiguration: PasteConfiguration
   @ObservationIgnored let didUpdate: [@MainActor @Sendable (ComposerController, Changeset) -> Void]
+  /// The hovered token or link in the input, which engines feed from the
+  /// pointer (see `HoverTracker`); a consumer shows its card or tooltip.
+  @ObservationIgnored public let hover = HoverTracker()
   /// The suggestion triggers, by character.
   @ObservationIgnored let triggers: [Trigger]
   /// Updates while async suggestion results are fetched.
