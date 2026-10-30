@@ -154,17 +154,21 @@
       }
     }
 
-    /// Underlines the marked text, as a rendering attribute.
+    /// Highlights and underlines the marked text, as rendering attributes:
+    /// UIKit draws nothing for marked text it doesn't own.
     private func syncMarkedText(_ marked: MarkedText?) {
       guard marked != renderedMarkedText, let textLayoutManager,
         let contentManager = textLayoutManager.textContentManager
       else { return }
       renderedMarkedText = marked
-      textLayoutManager.removeRenderingAttribute(
-        .underlineStyle, for: contentManager.documentRange)
+      for attribute in [NSAttributedString.Key.underlineStyle, .backgroundColor] {
+        textLayoutManager.removeRenderingAttribute(attribute, for: contentManager.documentRange)
+      }
       if let marked, let range = contentManager.textRange(for: NSRange(marked.range)) {
         textLayoutManager.addRenderingAttribute(
           .underlineStyle, value: NSUnderlineStyle.single.rawValue, for: range)
+        textLayoutManager.addRenderingAttribute(
+          .backgroundColor, value: tintColor.withAlphaComponent(0.18), for: range)
       }
     }
 

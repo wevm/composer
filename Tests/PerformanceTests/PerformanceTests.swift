@@ -53,6 +53,7 @@
       }
       let (median, p95) = statistics(samples.dropFirst(20))
       report("keystroke", median: median, p95: p95)
+      reportPlainKeystroke(document)
       // The budget holds for the typical keystroke; the tail gets twice it,
       // for scheduling noise on shared CI machines.
       XCTAssertLessThan(median, .milliseconds(4), "median keystroke \(median)")
@@ -128,6 +129,48 @@
     }
 
     // MARK: Helpers
+
+    /// A keystroke into a plain TextKit 2 text view showing the same text,
+    /// for comparison (diagnostic).
+    @MainActor private func reportPlainKeystroke(_ document: Document) {
+      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      let view = PlatformTextView(usingTextLayoutManager: true)
+      #if canImport(UIKit)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 640))
+        window.isHidden = false
+        defer { window.isHidden = true }
+        view.frame = window.bounds
+        window.addSubview(view)
+        view.attributedText = text
+        view.selectedRange = NSRange(location: document.length / 2, length: 0)
+      #else
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        view.frame = window.contentView!.bounds
+        window.contentView!.addSubview(view)
+        view.textStorage?.setAttributedString(text)
+        view.setSelectedRange(NSRange(location: document.length / 2, length: 0))
+      #endif
+      layOut(view)
+      var samples: [Duration] = []
+      for index in 0..<300 {
+        let character = index % 10 == 9 ? " " : "a"
+        samples.append(
+          ContinuousClock().measure {
+            #if canImport(UIKit)
+              view.insertText(character)
+            #else
+              view.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+            #endif
+            layOut(view)
+          })
+      }
+      let (median, p95) = statistics(samples.dropFirst(20))
+      report("keystroke, plain text view", median: median, p95: p95)
+    }
 
     /// The median time to create a view, add it to a window, and lay out
     /// its viewport, after warm-up.
