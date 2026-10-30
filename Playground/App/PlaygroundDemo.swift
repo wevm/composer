@@ -16,6 +16,7 @@ struct PlaygroundDemo: View {
   @State private var readout = Readout.markdown
   @State private var isExpanded = false
   @State private var isStyled = false
+  @State private var isDocked = false
   @FocusState private var isFocused: Bool
 
   private var controller: ComposerController { model.controller }
@@ -29,42 +30,86 @@ struct PlaygroundDemo: View {
         Button("Clear") { controller.clear() }
       }
       .buttonStyle(.bordered)
-      Text(
-        "Type markdown: **bold**, _italic_, ~~strike~~, `code`, and [links](url) convert as "
-          + "you close them, and ⌫ right after undoes it. Start a line with - , 1. , > , or [ ] "
-          + "in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block. Try @to, #tags, "
-          + "/shrug, /quote, and :smile:. ↩ sends on macOS (⌘↩ anywhere); ↑ in an empty "
-          + "composer edits your last message."
-      )
-      .font(.callout)
-      .foregroundStyle(.secondary)
-      TranscriptView(model: model)
-      if isStyled {
-        StyledComposer(controller, isExpanded: $isExpanded)
-          .focused($isFocused)
-      } else {
-        headless
+      if !isDocked {
+        Text(
+          "Type markdown: **bold**, _italic_, ~~strike~~, `code`, and [links](url) convert as "
+            + "you close them, and ⌫ right after undoes it. Start a line with - , 1. , > , or "
+            + "[ ] in a list; ⇥ and ⇧⇥ nest lists; ``` and ↩ start a code block. Try @to, "
+            + "#tags, /shrug, /quote, and :smile:. ↩ sends on macOS (⌘↩ anywhere); ↑ in an "
+            + "empty composer edits your last message."
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
       }
-      HStack {
-        Picker("Readout", selection: $readout) {
-          ForEach(Readout.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        Spacer()
-        Toggle("Styled", isOn: $isStyled).fixedSize()
-        Toggle("Expanded", isOn: $isExpanded).fixedSize()
+      TranscriptView(model: model, isDocked: isDocked)
+      if !isDocked {
+        composer
       }
-      if !isExpanded {
+      options
+      if !isExpanded && !isDocked {
         ReadoutView(controller: controller, readout: readout)
       }
     }
     .padding(16)
+    // Docked, the composer sits at the bottom, and on iOS on top of the
+    // keyboard while it is open: the bottom inset follows the keyboard.
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if isDocked {
+        composer
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+          .background(.bar)
+      }
+    }
     .onAppear { isFocused = true }
     #if os(macOS)
       .frame(minWidth: 560, minHeight: 520)
     #endif
+  }
+
+  @ViewBuilder private var composer: some View {
+    if isStyled {
+      StyledComposer(controller, isExpanded: $isExpanded)
+        .focused($isFocused)
+    } else {
+      headless
+    }
+  }
+
+  /// The readout and layout options, on one row where it fits (macOS, iPad)
+  /// and two on an iPhone.
+  private var options: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack {
+        readoutPicker
+        Spacer()
+        toggles
+      }
+      VStack(alignment: .leading) {
+        readoutPicker
+        toggles
+      }
+    }
+  }
+
+  private var readoutPicker: some View {
+    Picker("Readout", selection: $readout) {
+      ForEach(Readout.allCases) { Text($0.rawValue).tag($0) }
+    }
+    .pickerStyle(.segmented)
+    .labelsHidden()
+    .fixedSize()
+  }
+
+  private var toggles: some View {
+    HStack {
+      Toggle("Styled", isOn: $isStyled)
+      Toggle("Expanded", isOn: $isExpanded)
+      Toggle("Docked", isOn: $isDocked)
+    }
+    .toggleStyle(.button)
+    .buttonStyle(.bordered)
+    .fixedSize()
   }
 
   /// The composer built from the headless primitives.
@@ -253,6 +298,8 @@ struct PlaygroundDemo: View {
 /// The messages sent so far, newest last.
 struct TranscriptView: View {
   let model: DemoModel
+  /// Docked, the transcript takes the free height, as in a chat screen.
+  var isDocked = false
 
   var body: some View {
     if !model.messages.isEmpty {
@@ -277,7 +324,10 @@ struct TranscriptView: View {
           }
         }
       }
-      .frame(maxHeight: 180)
+      .frame(maxHeight: isDocked ? .infinity : 180)
+      .defaultScrollAnchor(.bottom)
+    } else if isDocked {
+      Spacer(minLength: 0)
     }
   }
 }
