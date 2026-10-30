@@ -5,10 +5,9 @@ import ComposerCore
 /// public API: transforms, a key binding, and a command.
 ///
 /// - `**bold**`, `_italic_`, `*italic*`, `~~strike~~`, and `` `code` ``
-///   convert when you type a space or punctuation after the closing
-///   delimiter. (Converting on the delimiter itself would make the next
-///   characters continue the mark, because Core's typing takes the marks of
-///   the text before the caret.)
+///   convert when you type the closing delimiter, and the mark ends there:
+///   the conversion stores the caret's marks without it, so the next
+///   characters aren't bold.
 /// - `- `, `* `, `1. `, and `> ` at the start of a top-level paragraph turn
 ///   it into a list item or a quote, and `[ ] ` or `[x] ` at the start of a
 ///   bullet item makes it a task.
@@ -41,8 +40,8 @@ struct LiveMarkdown: ComposerPlugin {
     return scalar.properties.isWhitespace || ".,;:!?)]}'\"".unicodeScalars.contains(scalar)
   }
 
-  /// Converts `<delimiter>text<delimiter>` right before the boundary
-  /// character just typed at the caret.
+  /// Converts `<delimiter>text<delimiter>` when its closing delimiter was
+  /// just typed at the caret.
   private static func convertInline(_ state: inout EditorState, in range: DocumentRange) {
     let caret = state.selection.head.offset
     guard state.selection.isCollapsed, range.lowerBound.offset <= caret,
@@ -58,16 +57,19 @@ struct LiveMarkdown: ComposerPlugin {
       guard case .text(let text, let marks) = inline, !marks.code else { return }
       let units = Array(text.utf16)
       let end = caret - start
-      guard end >= 3, isBoundary(units[end - 1]) else { return }
+      guard end >= 3 else { return }
       for (delimiter, mark) in rules where !marks[mark] {
         let d = Array(delimiter.utf16)
-        let close = end - 1 - d.count
+        let close = end - d.count
         guard close >= 1, Array(units[close..<close + d.count]) == d else { continue }
         guard let open = opening(of: d, before: close, in: units) else { continue }
         let base = start
         state.delete(Position(base + close)..<Position(base + close + d.count))
         state.setMark(mark, true, in: Position(base + open + d.count)..<Position(base + close))
         state.delete(Position(base + open)..<Position(base + open + d.count))
+        var after = state.document.marks(at: state.selection.head)
+        after[mark] = false
+        state.storedMarks = after
         return
       }
       return

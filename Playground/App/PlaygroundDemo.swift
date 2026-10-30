@@ -25,7 +25,7 @@ struct PlaygroundDemo: View {
       }
       .buttonStyle(.bordered)
       Text(
-        "Type markdown: **bold**, _italic_, ~~strike~~, and `code` convert after a space; "
+        "Type markdown: **bold**, _italic_, ~~strike~~, and `code` convert as you close them; "
           + "start a line with - , 1. , or > for lists and quotes, and [ ] in a list for a task."
       )
       .font(.callout)

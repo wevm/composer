@@ -54,6 +54,26 @@ public struct EditorState: Sendable, Equatable {
     }
   }
 
+  /// The marks the next typed text takes instead of the text before the
+  /// caret's, or `nil` to take those. Toggling a mark with no selection sets
+  /// them (⌘B, then typing, types bold), and so does a markdown conversion,
+  /// so that the converted mark ends at the closing delimiter. Typing uses
+  /// them up, and an update that moves the selection outside a composition
+  /// clears them, unless it sets them.
+  public var storedMarks: Marks? {
+    get { storage.storedMarks }
+    set {
+      makeUnique()
+      storage.storedMarks = newValue
+    }
+  }
+
+  /// The marks text typed at `position` takes: the stored marks, or else
+  /// those of the text before it.
+  public func typingMarks(at position: Position) -> Marks {
+    storedMarks ?? document.marks(at: position)
+  }
+
   /// Typed plugin state. Reading a key that was never set returns its
   /// default, and setting a key to its default removes it, so equality does
   /// not depend on whether a default was ever written.
@@ -73,6 +93,7 @@ public struct EditorState: Sendable, Equatable {
     if lhs.storage === rhs.storage { return true }
     let (l, r) = (lhs.storage, rhs.storage)
     guard l.selection == r.selection, l.markedText == r.markedText,
+      l.storedMarks == r.storedMarks,
       l.pluginState.count == r.pluginState.count, l.document == r.document
     else { return false }
     for (name, value) in l.pluginState {
@@ -144,17 +165,20 @@ public struct EditorState: Sendable, Equatable {
     var document: Document
     var selection: Selection
     var markedText: MarkedText?
+    var storedMarks: Marks?
     var pluginState: [String: any Equatable & Sendable]
     /// Bookkeeping for an update in progress; not part of equality.
     var tracking: Tracking?
 
     init(
       document: Document, selection: Selection, markedText: MarkedText?,
-      pluginState: [String: any Equatable & Sendable] = [:], tracking: Tracking? = nil
+      storedMarks: Marks? = nil, pluginState: [String: any Equatable & Sendable] = [:],
+      tracking: Tracking? = nil
     ) {
       self.document = document
       self.selection = selection
       self.markedText = markedText
+      self.storedMarks = storedMarks
       self.pluginState = pluginState
       self.tracking = tracking
     }
@@ -162,7 +186,7 @@ public struct EditorState: Sendable, Equatable {
     func copy() -> Storage {
       Storage(
         document: document, selection: selection, markedText: markedText,
-        pluginState: pluginState, tracking: tracking)
+        storedMarks: storedMarks, pluginState: pluginState, tracking: tracking)
     }
   }
 }

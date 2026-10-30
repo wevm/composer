@@ -13,11 +13,13 @@ extension EditorState {
   }
 
   /// Inserts text over `selection` (the current selection by default) and
-  /// puts the caret after it. The text takes `marks`, or by default the marks
-  /// of the text before it, without extending a link past its end.
+  /// puts the caret after it. The text takes `marks`, or by default the
+  /// stored marks, or else the marks of the text before it, without
+  /// extending a link past its end. It uses up the stored marks.
   public mutating func insert(_ text: String, at selection: Selection? = nil, marks: Marks? = nil) {
     let range = clamped((selection ?? self.selection).range)
-    let marks = marks ?? document.marks(at: range.lowerBound)
+    let marks = marks ?? typingMarks(at: range.lowerBound)
+    if storedMarks != nil { storedMarks = nil }
     insert([.text(text, marks: marks)], over: range)
   }
 
@@ -56,7 +58,17 @@ extension EditorState {
   }
 
   /// Removes the mark when all text in `range` has it, and adds it otherwise.
+  /// With an empty range, toggles the mark in the stored marks instead, so
+  /// it applies to the text typed next.
   public mutating func toggleMark(_ kind: MarkKind, in range: DocumentRange) {
+    if range.isEmpty {
+      let position = clamped(range).lowerBound
+      let current = document.marks(at: position)
+      var marks = typingMarks(at: position)
+      marks[kind].toggle()
+      storedMarks = marks == current ? nil : marks
+      return
+    }
     setMark(kind, !document.allText(in: range.offsets) { $0[kind] }, in: range)
   }
 

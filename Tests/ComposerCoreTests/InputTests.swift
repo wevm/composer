@@ -328,3 +328,82 @@ import Testing
     #expect(driver.state.document.blocks == [.paragraph([.text("aか")])])
   }
 }
+
+@MainActor @Suite struct StoredMarkTests {
+  func toggleBold(_ controller: ComposerController) {
+    controller.update { $0.toggleMark(.bold, in: $0.selection.range) }
+  }
+
+  func type(_ controller: ComposerController, _ text: String) {
+    for character in text { controller.insertText(String(character)) }
+  }
+
+  @Test func togglingAtTheCaretAppliesToTheNextTypedText() {
+    let controller = ComposerController(
+      EditorState(document: Document(blocks: [paragraph(text("ab"))])))
+    toggleBold(controller)
+    #expect(controller.state.storedMarks == .bold)
+    #expect(controller.document.blocks == [paragraph(text("ab"))], "nothing changes yet")
+    type(controller, "cd")
+    #expect(controller.state.storedMarks == nil, "typing uses them up")
+    // Off again in the middle of bold text: the next character is plain,
+    // though the text before it is bold.
+    toggleBold(controller)
+    #expect(controller.state.storedMarks == Marks())
+    type(controller, "e")
+    #expect(controller.document.blocks == [paragraph(text("ab"), text("cd", .bold), text("e"))])
+    // Toggling twice is no stored mark at all.
+    toggleBold(controller)
+    toggleBold(controller)
+    #expect(controller.state.storedMarks == nil)
+  }
+
+  @Test func movingTheCaretEndsTheStoredMarks() {
+    let controller = ComposerController(
+      EditorState(document: Document(blocks: [paragraph(text("ab"))])))
+    toggleBold(controller)
+    controller.selection = .caret(1)
+    #expect(controller.state.storedMarks == nil)
+    type(controller, "x")
+    #expect(controller.document.blocks == [paragraph(text("axb"))])
+    // Deleting moves the caret too.
+    toggleBold(controller)
+    controller.deleteBackward()
+    #expect(controller.state.storedMarks == nil)
+  }
+
+  @Test func aCompositionTakesTheStoredMarksUntilItCommits() {
+    let controller = ComposerController()
+    toggleBold(controller)
+    controller.setMarkedText("k", selectedRange: 1..<1)
+    controller.setMarkedText("か", selectedRange: 1..<1)
+    #expect(controller.state.storedMarks == .bold, "the caret moving inside keeps them")
+    controller.insertText("火")
+    #expect(controller.document.blocks == [paragraph(text("火", .bold))])
+    #expect(controller.state.storedMarks == nil)
+  }
+
+  @Test func aTransformCanEndTheMarkItConverts() {
+    // Like a markdown conversion: `!x!` becomes a bold `x`, and the mark
+    // ends there.
+    let convert = NodeTransform("bang") { state, range in
+      guard let block = state.document.textBlock(containing: range.lowerBound),
+        case .paragraph(let inlines) = block.content, inlines == [text("!x!")]
+      else { return }
+      let start = block.range.lowerBound.offset
+      state.replace(
+        Position(start)..<Position(start + 3), with: [text("x", .bold)])
+      state.storedMarks = Marks()
+    }
+    let controller = ComposerController(plugins: [Transforms(transforms: [convert])])
+    type(controller, "!x!y")
+    #expect(controller.document.blocks == [paragraph(text("x", .bold), text("y"))])
+  }
+
+  @Test func storedMarksArePartOfTheState() {
+    var state = EditorState()
+    let plain = state
+    state.storedMarks = .bold
+    #expect(state != plain)
+  }
+}

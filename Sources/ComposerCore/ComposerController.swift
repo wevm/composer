@@ -94,6 +94,13 @@ public final class ComposerController {
     }
     let edits = state.tracking!.edits
     state.tracking = nil
+    // Moving the caret ends the stored marks, unless this update set them;
+    // a composition keeps them until it commits.
+    if state.storedMarks != nil, state.storedMarks == before.storedMarks,
+      state.selection != selectionBefore, state.markedText == nil, before.markedText == nil
+    {
+      state.storedMarks = nil
+    }
     if !edits.isEmpty {
       state.selection = state.selection.clamped(to: state.document.length)
     }
@@ -239,6 +246,7 @@ public final class ComposerController {
       state.document = snapshot.document
       state.selection = snapshot.selection
       state.markedText = nil
+      state.storedMarks = nil
       state.copyPluginState(from: snapshot)
     }
   }

@@ -35,7 +35,7 @@ extension ComposerController {
       let lower = target.lowerBound.offset
       state.replace(
         target,
-        with: text.isEmpty ? [] : [.text(text, marks: state.document.marks(at: target.lowerBound))])
+        with: text.isEmpty ? [] : [.text(text, marks: state.typingMarks(at: target.lowerBound))])
       let length = text.utf16.count
       if length == 0 {
         state.markedText = nil
