@@ -186,7 +186,10 @@ public struct AtomicNode: Sendable, Hashable {
 - Inline content is a list of runs. Atomic nodes are typed and indivisible: delete and select treat them as one unit.
 - Node types are open. Plugins register them, together with their codecs, in the schema. The core schema registers nothing.
 - Marks nest freely, except that nothing nests inside inline code.
-- An `UnknownNode` keeps a JSON node verbatim when its type has no registered plugin (see [JSON](#json)).
+- An `UnknownNode` keeps a JSON node verbatim when its type has no registered plugin (see [JSON](#json)). Unknown JSON *blocks* are kept the same way, as `Block.unknown`.
+- Inline code never spans a line break, and a link is a mark that carries its destination, so links don't nest.
+
+**Positions.** A `Position` is an offset into the document's linear form: its paragraphs and code blocks in order, one unit apart. Text counts in UTF-16 code units, the unit of `NSString` and TextKit, and each atomic or unknown inline node counts as one unit, so no position falls inside a token. Quotes, lists, items, and unknown blocks add no units. Editing rounds a position inside a surrogate pair down to the start of the pair. Why linear offsets: they map directly onto `NSTextStorage` ranges, so the changeset applier translates nothing.
 
 ### Selection and state
 
@@ -208,6 +211,9 @@ public struct EditorState: Sendable {   // copy-on-write storage
 
 `EditorState` is a copy-on-write struct. Snapshots are cheap, so undo, tests, and conformance comparisons get them for free. Equality is meaningful, so two engines can be compared value for value.
 
+- Plugin state must be `Equatable` (`PluginKey<State: Sendable & Equatable>`), because it takes part in equality. Keys are identified by name. Setting a key to its default is the same as never setting it.
+- `attachments` and `context` arrive with their types in milestone 8.
+
 ### Updates
 
 Every change goes through one entry point:
@@ -225,6 +231,13 @@ An update runs in this order:
 3. The update emits a **changeset**: the dirty ranges plus the selection delta. It is deliberately lightweight.
 4. Engines apply the changeset to their `NSTextStorage` by diffing only the dirty ranges, never by replacing the whole storage. This is what keeps a keystroke under the 4 ms budget. The applier is shared in `ComposerTextKit`.
 5. Observation fires. Fine-grained `@Observable` properties make sure a keystroke only invalidates views that depend on the text or the selection, not the actions, slots, or attachments.
+
+Details decided in milestone 3:
+
+- A changeset's edits are sequential replacements in the linear form, each in the coordinates the previous ones left. Touching edits coalesce, so typing a word is one edit. An edit whose replacement has the same length may change attributes only. Assigning `state.document` directly is reported as replacing the whole document; the editing methods (`replace`, `insert`, `delete`, `splitBlock`, `setMark`, `setLink`) report exactly what they touch.
+- A transform is called with the content range of each text block edited since its previous pass, and edits through the same methods, so its own edits are dirty for the next pass. Passes stop at a fixed point or at `maxTransformPasses` (32). Hitting the limit means a transform never converges; the update keeps the state it reached and sets `reachedTransformLimit` on the changeset rather than trapping, so a bad plugin can't crash the app.
+- While marked text exists, edited ranges are carried over to the update that ends the composition, and transforms run on them then.
+- `ComposerController.state` is one observable property for now. Splitting it so a keystroke invalidates only text and selection readers belongs to the SwiftUI binding (milestone 6).
 
 ### Commands
 
@@ -247,6 +260,10 @@ controller.register(.send, priority: .high) { payload, controller in
 
 controller.run(.toggleBold)
 ```
+
+- Among handlers of equal priority, the most recently registered runs first, so a consumer can override a plugin without picking a priority. The priorities are `.editor` (0, built-in fallbacks), `.low`, `.normal`, `.high`, and `.critical`, and any integer works.
+- A command is its name and payload type: `Command<Int>("x")` and `Command<String>("x")` don't see each other's runs.
+- Handlers registered or removed during a run take effect from the next run.
 
 ### Undo
 
@@ -713,6 +730,8 @@ Default bindings:
 | Esc           | clear the reply or edit context                          |
 
 There is no ⌘U: the schema has no underline mark, because markdown has no underline syntax. Composer does not install menus.
+
+Core is Foundation-only, so the keymap uses its own `Key` and `KeyModifiers` rather than SwiftUI's `KeyEquivalent` and `EventModifiers`. The native layers map them. `discoverabilityTitle` is a `LocalizedStringResource` on Apple platforms and a `String` on Linux, where Foundation has no `LocalizedStringResource`. A key press tries the bindings whose `when` holds, in priority order (the most recently added first among equals), until one's command is handled.
 
 ## Input
 
