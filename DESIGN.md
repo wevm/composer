@@ -902,6 +902,14 @@ Copy writes three representations:
 - RTF, for rich-text apps;
 - the private type `dev.wevm.composer.document`, whose payload is the JSON form, for composer to composer, so tokens and their attributes survive.
 
+Details decided in milestone 8:
+
+- Copying takes a fragment of the document (`Document.fragment(_:)`): the text blocks the selection touches, cut to it, inside the quotes and lists that hold them, with an ordered list renumbered from its first copied item. A selection that covers a block separator keeps the (possibly empty) block on each side, so pasting splits a block as the copied text did. RTF is rendered from the fragment with the composer's own attributes, so list markers, which are drawn rather than stored, aren't in it. Copy is always on; `RichPaste`, which `.chatDefaults` includes, only governs reading.
+- Pasting reads, in order: composer's own type (tokens and structure come through as they were); file URLs (macOS), which become `PasteSource.files`; with `RichPaste`, HTML and then RTF; images with no text; plain text. Paste and Match Style takes only the plain text.
+- HTML is mapped in Core, by a small forgiving tokenizer, so it is tested on Linux; RTF is read with the platform's importer and turned into the same tokens, so both map identically. Beyond the table: `font-weight`, `font-style`, and `text-decoration` in `style` attributes count as marks, and a `font-weight: normal` wrapper (as Google Docs writes around everything) isn't bold; whitespace collapses as a browser shows it; `<script>`, `<style>`, and comments are skipped; `javascript:` and fragment-only links are dropped; `<pre><code class="language-x">` keeps its language.
+- An `<img>` becomes an attachment whose payload is its `URL`, since only the address is on the pasteboard; image data (from RTF, or an image alone) becomes a `PastedFile`. Either goes to the tray when `AttachmentsPlugin` is enabled and is dropped otherwise. `PasteResult` gained `.attachments` and `.content(_:attachments:)` for this.
+- Drops: text drops were already input; on macOS, dropped files and images go through paste at the drop point. Dropping files on iOS is left for later.
+
 ## Read-only content
 
 `Composer.Content` (SwiftUI) and `ComposerContentView` (native) render sent messages. Both use the same text styles as the input.

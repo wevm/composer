@@ -118,9 +118,4 @@
     }
     return Selection(lower..<upper)
   }
-
-  /// Text from storage for the clipboard: tokens are their labels already.
-  package func clipboardText(of text: NSAttributedString) -> String {
-    documentText(text.string)
-  }
 #endif

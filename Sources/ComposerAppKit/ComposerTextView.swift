@@ -432,21 +432,100 @@
     }
     open override func pasteAsRichText(_ sender: Any?) { paste(from: .general) }
 
-    /// Pastes a pasteboard's plain text.
+    /// Composer's own pasteboard type: the JSON form of the copied
+    /// fragment.
+    public static let documentType = NSPasteboard.PasteboardType(ClipboardContent.documentType)
+    private static let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
+
+    /// Pastes from a pasteboard: composer's own type first, so tokens
+    /// survive; then files; then, with `RichPaste`, HTML or RTF; then images;
+    /// then plain text. Paste and Match Style takes only the plain text.
     public func paste(from pasteboard: NSPasteboard, options: PasteOptions = PasteOptions()) {
+      if !options.matchesStyle {
+        if let json = pasteboard.data(forType: Self.documentType),
+          controller.pasteDocument(json, options: options)
+        {
+          return
+        }
+        let files = Self.files(on: pasteboard)
+        if !files.isEmpty {
+          controller.paste(.files(files), options: options)
+          return
+        }
+        if controller.acceptsRichPaste {
+          if let html = pasteboard.string(forType: .html) {
+            controller.paste(.html(html), options: options)
+            return
+          }
+          if let rtf = pasteboard.data(forType: .rtf),
+            let (document, images) = RichText.document(fromRTF: rtf)
+          {
+            if !document.blocks.isEmpty { controller.paste(.document(document), options: options) }
+            if !images.isEmpty { controller.paste(.files(images), options: options) }
+            return
+          }
+        }
+        if pasteboard.string(forType: .string) == nil {
+          let images = Self.imageTypes.compactMap { type in
+            pasteboard.data(forType: type).map {
+              PastedFile(data: $0, contentType: type.rawValue)
+            }
+          }
+          if let image = images.first {
+            controller.paste(.files([image]), options: options)
+            return
+          }
+        }
+      }
       guard let string = pasteboard.string(forType: .string) else { return }
       controller.paste(.plainText(string), options: options)
     }
 
-    /// Copies the selection as plain text, with tokens as their labels. The
-    /// markdown, RTF, and document representations come with the clipboard
-    /// work.
+    /// The files on a pasteboard, read from their URLs.
+    private static func files(on pasteboard: NSPasteboard) -> [PastedFile] {
+      let urls =
+        pasteboard.readObjects(
+          forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+      return urls.compactMap { url in
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+        return PastedFile(
+          data: data, contentType: type?.identifier ?? "public.data", name: url.lastPathComponent)
+      }
+    }
+
+    /// Copies the selection as markdown (the plain text), RTF, and
+    /// composer's own type, so tokens survive from composer to composer.
     open override func copy(_ sender: Any?) {
-      let range = selectedRange()
-      guard range.length > 0, let textStorage else { return }
-      NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(
-        clipboardText(of: textStorage.attributedSubstring(from: range)), forType: .string)
+      guard let content = controller.clipboardContent() else { return }
+      write(content, to: .general)
+    }
+
+    /// Writes clipboard content to a pasteboard.
+    public func write(_ content: ClipboardContent, to pasteboard: NSPasteboard) {
+      pasteboard.clearContents()
+      pasteboard.declareTypes([.string, .rtf, Self.documentType], owner: nil)
+      pasteboard.setString(content.markdown, forType: .string)
+      if let rtf = RichText.rtf(content.document, mapper: mapper) {
+        pasteboard.setData(rtf, forType: .rtf)
+      }
+      pasteboard.setData(content.json, forType: Self.documentType)
+    }
+
+    /// Dropped files and images go through paste, at the drop point, so
+    /// they reach the attachments tray; text drops are input as before.
+    open override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+      super.acceptableDragTypes + [.fileURL] + Self.imageTypes
+    }
+
+    open override func readSelection(
+      from pboard: NSPasteboard, type: NSPasteboard.PasteboardType
+    ) -> Bool {
+      guard type == .fileURL || Self.imageTypes.contains(type) else {
+        return super.readSelection(from: pboard, type: type)
+      }
+      paste(from: pboard)
+      return true
     }
 
     open override func cut(_ sender: Any?) {

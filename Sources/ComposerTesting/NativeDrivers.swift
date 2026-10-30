@@ -64,6 +64,13 @@
       case .paste(let source):
         switch source {
         case .plainText(let text): pasteboard.string = text
+        case .html(let html): pasteboard.setData(Data(html.utf8), forPasteboardType: "public.html")
+        case .document(let document):
+          pasteboard.setData(
+            (try? JSONCodec(schema: controller.schema).encode(document)) ?? Data(),
+            forPasteboardType: ClipboardContent.documentType)
+        case .files(let files):
+          pasteboard.items = files.map { [$0.contentType: $0.data] }
         }
         textView.paste(from: pasteboard)
       case .select(let range):
@@ -207,10 +214,18 @@
       case .press(let key, let modifiers):
         press(key, modifiers)
       case .paste(let source):
+        pasteboard.clearContents()
         switch source {
         case .plainText(let text):
-          pasteboard.clearContents()
           pasteboard.setString(text, forType: .string)
+        case .html(let html):
+          pasteboard.setString(html, forType: .html)
+        case .document(let document):
+          pasteboard.setData(
+            (try? JSONCodec(schema: controller.schema).encode(document)) ?? Data(),
+            forType: ComposerTextView.documentType)
+        case .files(let files):
+          for file in files { pasteboard.setData(file.data, forType: .init(file.contentType)) }
         }
         textView.paste(from: pasteboard)
       case .select(let range):

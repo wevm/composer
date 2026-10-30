@@ -10,6 +10,10 @@ public protocol PasteMapper: Sendable {
 
 public enum PasteResult: Sendable {
   case document(Document)
+  /// Files for the attachments tray (dropped if it isn't enabled).
+  case attachments([Attachment])
+  /// Both, as from HTML with images.
+  case content(Document, attachments: [Attachment])
   /// The mapper doesn't handle this content; the next one tries.
   case unhandled
 }
@@ -50,15 +54,18 @@ extension PluginRegistry {
   }
 }
 
-/// The plain-text mapping, when no mapper takes the content: its text as
-/// one paragraph, line breaks and all.
+/// The plain-text mapping, when no mapper takes the content (or the paste
+/// matches style): its text as one paragraph, line breaks and all.
 func plainFragment(_ source: PasteSource) -> Document? {
+  let text: String
   switch source {
-  case .plainText(let text):
-    let text = Normalizer.lineEndings(text)
-    guard !text.isEmpty else { return nil }
-    return Document(blocks: [.paragraph([.text(text, marks: Marks())])])
+  case .plainText(let plain): text = Normalizer.lineEndings(plain)
+  case .html(let html): text = HTMLPasteMapper.map(html).document.plainText
+  case .document(let document): text = document.plainText
+  case .files: return nil
   }
+  guard !text.isEmpty else { return nil }
+  return Document(blocks: [.paragraph([.text(text, marks: Marks())])])
 }
 
 extension ComposerController {
@@ -70,14 +77,23 @@ extension ComposerController {
       return
     }
     var fragment: Document?
+    var attachments: [Attachment] = []
     if !options.matchesStyle {
       for mapper in pasteConfiguration.mappers {
-        if case .document(let document) = mapper.map(source) {
-          fragment = document
-          break
+        switch mapper.map(source) {
+        case .unhandled: continue
+        case .document(let document): fragment = document
+        case .attachments(let files): attachments = files
+        case .content(let document, let files): (fragment, attachments) = (document, files)
         }
+        break
+      }
+      if fragment == nil, attachments.isEmpty, case .document(let document) = source {
+        fragment = document
       }
     }
+    if attachmentAdded != nil { addAttachments(attachments) }
+    if fragment == nil, !attachments.isEmpty { return }
     guard var fragment = fragment ?? plainFragment(source),
       fragment.length > 0
         || fragment.blocks.count > 1
@@ -161,6 +177,7 @@ struct PasteConfiguration: Sendable {
     [(Priority, @MainActor @Sendable (PasteSource, PasteOptions, ComposerController) -> Bool)] = []
   var mappers: [any PasteMapper] = []
   var transforms: [@Sendable (Document) -> Document] = []
+  var acceptsRichText = false
 }
 
 // MARK: Markdown paste

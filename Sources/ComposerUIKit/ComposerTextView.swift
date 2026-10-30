@@ -440,6 +440,11 @@
     /// A key command applies only while the controller would handle its
     /// key, so arrows and other keys fall through to UIKit otherwise.
     open override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+      if action == #selector(paste(_:)) {
+        let board = UIPasteboard.general
+        return board.hasStrings || board.hasImages
+          || board.contains(pasteboardTypes: [ClipboardContent.documentType])
+      }
       guard action == #selector(handleKeyCommand(_:)) else {
         return super.canPerformAction(action, withSender: sender)
       }
@@ -487,17 +492,66 @@
       paste(from: .general, options: PasteOptions(matchesStyle: true))
     }
 
-    /// Pastes a pasteboard's plain text.
+    private static let htmlType = "public.html"
+    private static let rtfType = "public.rtf"
+    private static let imageTypes = ["public.png", "public.jpeg", "public.heic", "public.tiff"]
+
+    /// Pastes from a pasteboard: composer's own type first, so tokens
+    /// survive; then, with `RichPaste`, HTML or RTF; then images; then plain
+    /// text. Paste and Match Style takes only the plain text.
     public func paste(from pasteboard: UIPasteboard, options: PasteOptions = PasteOptions()) {
+      if !options.matchesStyle {
+        if let json = pasteboard.data(forPasteboardType: ClipboardContent.documentType),
+          controller.pasteDocument(json, options: options)
+        {
+          return
+        }
+        if controller.acceptsRichPaste {
+          if let data = pasteboard.data(forPasteboardType: Self.htmlType),
+            let html = String(data: data, encoding: .utf8)
+          {
+            controller.paste(.html(html), options: options)
+            return
+          }
+          if let rtf = pasteboard.data(forPasteboardType: Self.rtfType),
+            let (document, images) = RichText.document(fromRTF: rtf)
+          {
+            if !document.blocks.isEmpty { controller.paste(.document(document), options: options) }
+            if !images.isEmpty { controller.paste(.files(images), options: options) }
+            return
+          }
+        }
+        if !pasteboard.hasStrings {
+          let images = Self.imageTypes.compactMap { type in
+            pasteboard.data(forPasteboardType: type).map {
+              PastedFile(data: $0, contentType: type)
+            }
+          }
+          if !images.isEmpty {
+            controller.paste(.files(images), options: options)
+            return
+          }
+        }
+      }
       guard let string = pasteboard.string else { return }
       controller.paste(.plainText(string), options: options)
     }
 
-    /// Copies the selection as plain text, with tokens as their labels.
+    /// Copies the selection as markdown (the plain text), RTF, and
+    /// composer's own type, so tokens survive from composer to composer.
     open override func copy(_ sender: Any?) {
-      let range = selectedRange
-      guard range.length > 0 else { return }
-      UIPasteboard.general.string = clipboardText(of: textStorage.attributedSubstring(from: range))
+      guard let content = controller.clipboardContent() else { return }
+      write(content, to: .general)
+    }
+
+    /// Writes clipboard content to a pasteboard.
+    public func write(_ content: ClipboardContent, to pasteboard: UIPasteboard) {
+      var item: [String: Any] = [
+        "public.utf8-plain-text": content.markdown,
+        ClipboardContent.documentType: content.json,
+      ]
+      if let rtf = RichText.rtf(content.document, mapper: mapper) { item[Self.rtfType] = rtf }
+      pasteboard.setItems([item])
     }
 
     open override func cut(_ sender: Any?) {

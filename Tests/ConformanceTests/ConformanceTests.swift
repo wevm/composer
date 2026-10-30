@@ -273,6 +273,74 @@
       #expect(driver.textView.storageMap.storage(4) == 7)
     }
 
+    /// HTML, composer's own type, and files paste through the pasteboard
+    /// as through the controller.
+    @Test func richPastesConform() {
+      let mention = AtomicNode(type: .mention, label: "tom", attributes: ["id": "1"])
+      expectConformance(
+        Session {
+          Paste(
+            .html("<p><b>bold</b> and <a href=\"https://x.dev\">link</a></p><ul><li>a</li></ul>"))
+          Paste(.document(Document(blocks: [.paragraph([.text("hi "), .node(mention)])])))
+          Paste(.files([PastedFile(data: Data([1]), contentType: "public.png")]))
+        },
+        plugins: [
+          PluginGroup.chatDefaults, RichPaste(), MentionsPlugin(source: .static(people)),
+          AttachmentsPlugin { _, _ in },
+        ])
+    }
+
+    /// Copying writes markdown, RTF, and composer's own type; pasting the
+    /// pasteboard into another composer brings tokens through, and RTF alone
+    /// maps to marks.
+    @Test func copyAndPasteThroughThePasteboard() throws {
+      let mention = AtomicNode(type: .mention, label: "tom", attributes: ["id": "1"])
+      let plugins: [any ComposerPlugin] = [
+        PluginGroup.chatDefaults, RichPaste(), MentionsPlugin(source: .static(people)),
+      ]
+      let source = NativeDriver(
+        EditorState(
+          document: Document(blocks: [
+            .paragraph([.text("a ", marks: .bold), .node(mention), .text(" b")])
+          ])), plugins: plugins)
+      let content = try #require(source.controller.clipboardContent(of: Position(0)..<Position(4)))
+      #if canImport(UIKit)
+        let pasteboard = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: pasteboard.name) }
+        source.textView.write(content, to: pasteboard)
+        #expect(pasteboard.string == content.markdown)
+        let rtf = try #require(pasteboard.data(forPasteboardType: "public.rtf"))
+      #else
+        let pasteboard = NSPasteboard(name: .init("dev.wevm.composer.tests.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        source.textView.write(content, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == content.markdown)
+        let rtf = try #require(pasteboard.data(forType: .rtf))
+      #endif
+      #expect(content.markdown == "**a** :mention[tom]{#1}&#32;")
+      let target = NativeDriver(EditorState(), plugins: plugins)
+      target.textView.paste(from: pasteboard)
+      #expect(
+        target.controller.document.blocks == [
+          .paragraph([.text("a ", marks: .bold), .node(mention), .text(" ")])
+        ])
+      #expect(target.textView.renderingMismatch() == nil)
+      // RTF alone: the bold survives as a mark, the token as its text.
+      let rtfOnly = NativeDriver(EditorState(), plugins: plugins)
+      #if canImport(UIKit)
+        let board = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: board.name) }
+        board.setData(rtf, forPasteboardType: "public.rtf")
+      #else
+        let board = NSPasteboard(name: .init("dev.wevm.composer.tests.\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setData(rtf, forType: .rtf)
+      #endif
+      rtfOnly.textView.paste(from: board)
+      #expect(rtfOnly.controller.markdown == "**a** @tom")
+    }
+
     @Test func aTaskBoxTogglesItsItem() throws {
       let driver = NativeDriver(
         EditorState(document: MarkdownCodec().parse("- [ ] milk\n- [x] eggs")),

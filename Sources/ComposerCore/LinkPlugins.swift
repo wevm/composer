@@ -258,11 +258,11 @@ extension Document {
 
 extension PluginGroup {
   /// The preset for features that need no app input: every markdown rule,
-  /// task lists included; markdown paste; autolink, a URL pasted over a
-  /// selection, and ⌘K link editing.
+  /// task lists included; markdown and rich (HTML and RTF) paste;
+  /// autolink, a URL pasted over a selection, and ⌘K link editing.
   public static var chatDefaults: PluginGroup {
     PluginGroup([
-      PluginGroup.markdown, MarkdownPaste(), Autolink(), PasteLinkOverSelection(),
+      PluginGroup.markdown, MarkdownPaste(), RichPaste(), Autolink(), PasteLinkOverSelection(),
       LinkEditingPlugin(),
     ])
   }

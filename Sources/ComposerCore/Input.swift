@@ -1,3 +1,5 @@
+import Foundation
+
 // Text input, as engines report it. Engines route their text view's input
 // here instead of editing their text storage, so every platform edits the
 // document the same way, and Core tests drive the same paths without a text
@@ -6,6 +8,28 @@
 /// Where pasted content comes from.
 public enum PasteSource: Sendable, Hashable {
   case plainText(String)
+  /// HTML from the pasteboard, mapped by `RichPaste`.
+  case html(String)
+  /// A document already in the schema: composer's own clipboard type, or
+  /// rich text (RTF) an engine mapped.
+  case document(Document)
+  /// Files or images, which go to the attachments tray when
+  /// `AttachmentsPlugin` is enabled and are dropped otherwise.
+  case files([PastedFile])
+}
+
+/// A pasted or dropped file.
+public struct PastedFile: Sendable, Hashable {
+  public var data: Data
+  /// The uniform type identifier, such as `public.png`.
+  public var contentType: String
+  public var name: String?
+
+  public init(data: Data, contentType: String, name: String? = nil) {
+    self.data = data
+    self.contentType = contentType
+    self.name = name
+  }
 }
 
 extension ComposerController {

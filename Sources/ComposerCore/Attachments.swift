@@ -101,6 +101,15 @@ public struct AttachmentsPlugin: ComposerPlugin {
 
   public func register(in registry: inout PluginRegistry) {
     registry.attachmentAdded = onAdd
+    registry.addPasteMapper(FilePasteMapper())
+  }
+}
+
+/// Pasted and dropped files become pending attachments.
+struct FilePasteMapper: PasteMapper {
+  func map(_ source: PasteSource) -> PasteResult {
+    guard case .files(let files) = source, !files.isEmpty else { return .unhandled }
+    return .attachments(files.map { Attachment(payload: $0, name: $0.name) })
   }
 }
 
