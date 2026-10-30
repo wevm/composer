@@ -41,9 +41,9 @@ Non-goals (these are the app's job, or out of scope):
 | Formatting     | `swift-format`, 2-space indent and 100-character lines (zero-swift's `.swift-format`). No SwiftLint              |
 | CI             | Linux (Core builds and tests) and `macos-26` (iOS simulator and macOS). The `macos-26` job gates merges          |
 | Identifiers    | Reverse-DNS root `dev.wevm`, for example the pasteboard type `dev.wevm.composer.document`                        |
-| First consumer | The Playground app in this repository. zbugs-swift (in `wevm/zero`) adopts it once the alpha is usable, replacing its comment `TextField` |
+| Consumer       | The Playground app in this repository, the only consumer for now                                                 |
 
-Why iOS 26 and macOS 26: they bring `Observations` and automatic observation tracking in UIKit and AppKit (`updateProperties()`). That lets one `@Observable` controller drive SwiftUI, UIKit, and AppKit, which the headless design depends on. Matching zero-swift also keeps the floors aligned for zbugs-swift.
+Why iOS 26 and macOS 26: they bring `Observations` and automatic observation tracking in UIKit and AppKit (`updateProperties()`). That lets one `@Observable` controller drive SwiftUI, UIKit, and AppKit, which the headless design depends on.
 
 Why no dependencies: the composer sits in the keystroke hot path and gets embedded in other SDKs' apps. A markdown parser limited to the supported subset (see [Markdown](#markdown)) is small. Owning it also lets the parser keep unsupported syntax as literal text, which a general-purpose parser would turn into nodes we would then have to drop.
 
@@ -1051,7 +1051,8 @@ Explicitly deferred work:
 - Headings, tables, and images.
 - Swapping `Text` for TextKit only while the content is hovered, if profiling shows the automatic switch costs too much.
 - Full docs and a stable API (after the alpha).
-- zbugs-swift adoption (in `wevm/zero`), once the alpha is usable.
+- Dropping files and images on iOS: `ComposerTextView` claims file and image drops through its text drop delegate, a `UIDropInteraction` on the composer takes them, and their `NSItemProvider`s load into the tray as `.pending` attachments. Without `AttachmentsPlugin`, file drops are refused.
+- View-attachment tokens (`attachmentView`, for example avatar pills), rendered through `NSTextAttachmentViewProvider`.
 
 ## Open questions
 
