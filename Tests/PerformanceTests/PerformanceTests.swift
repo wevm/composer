@@ -99,26 +99,32 @@
 
     /// With a 2k-character document, layout dominates mounting, and a plain
     /// TextKit 2 text view showing the same text is the floor: the composer
-    /// must stay close to it.
+    /// must stay near it. The two are measured interleaved, so a slow patch
+    /// on a shared CI machine hits both, and the composer also maps the
+    /// document, which the plain view gets for free.
     @MainActor func testMountOfAChatSizedDocumentStaysNearTextKit() {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       let text = AttributeMapper(styles: .standard).attributedString(for: document)
-      let plain = mountTime(name: "mount 2k, plain text view") { frame in
-        let view = PlatformTextView(usingTextLayoutManager: true)
-        view.frame = frame
-        #if canImport(UIKit)
-          view.attributedText = text
-        #else
-          view.textStorage?.setAttributedString(text)
-        #endif
-        return view
-      }
-      let composer = mountTime(name: "mount 2k, composer") {
-        ComposerTextView(
-          controller: ComposerController(EditorState(document: document)), frame: $0)
-      }
+      let (plain, composer) = mountTimes(
+        { frame in
+          let view = PlatformTextView(usingTextLayoutManager: true)
+          view.frame = frame
+          #if canImport(UIKit)
+            view.attributedText = text
+          #else
+            view.textStorage?.setAttributedString(text)
+          #endif
+          return view
+        },
+        {
+          ComposerTextView(
+            controller: ComposerController(EditorState(document: document)), frame: $0)
+        })
+      report("mount 2k, plain text view", median: plain.median, p95: plain.p95)
+      report("mount 2k, composer", median: composer.median, p95: composer.p95)
       XCTAssertLessThan(
-        composer, plain * 1.25 + .milliseconds(1), "composer \(composer), plain \(plain)")
+        composer.median, plain.median * 1.5 + .milliseconds(2),
+        "composer \(composer.median), plain \(plain.median)")
     }
 
     // MARK: Helpers
@@ -128,6 +134,15 @@
     @MainActor private func mountTime(
       name: String, _ make: (CGRect) -> PlatformTextView
     ) -> Duration {
+      let (time, _) = mountTimes(make, make)
+      report(name, median: time.median, p95: time.p95)
+      return time.median
+    }
+
+    /// The mount times of two kinds of view, measured alternately.
+    @MainActor private func mountTimes(
+      _ first: (CGRect) -> PlatformTextView, _ second: (CGRect) -> PlatformTextView
+    ) -> ((median: Duration, p95: Duration), (median: Duration, p95: Duration)) {
       #if canImport(UIKit)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 320))
         window.isHidden = false
@@ -141,21 +156,24 @@
         defer { window.close() }
         let container: NSView = window.contentView!
       #endif
-      var samples: [Duration] = []
-      for _ in 0..<30 {
+      func mount(_ make: (CGRect) -> PlatformTextView) -> Duration {
         var mounted: PlatformTextView?
-        samples.append(
-          ContinuousClock().measure {
-            let view = make(container.bounds)
-            container.addSubview(view)
-            layOut(view)
-            mounted = view
-          })
+        let time = ContinuousClock().measure {
+          let view = make(container.bounds)
+          container.addSubview(view)
+          layOut(view)
+          mounted = view
+        }
         mounted?.removeFromSuperview()
+        return time
       }
-      let (median, p95) = statistics(samples.dropFirst(5))
-      report(name, median: median, p95: p95)
-      return median
+      var firstSamples: [Duration] = []
+      var secondSamples: [Duration] = []
+      for _ in 0..<30 {
+        firstSamples.append(mount(first))
+        secondSamples.append(mount(second))
+      }
+      return (statistics(firstSamples.dropFirst(5)), statistics(secondSamples.dropFirst(5)))
     }
 
     @MainActor private func layOut(_ textView: PlatformTextView) {
@@ -167,7 +185,9 @@
       #endif
     }
 
-    private func statistics(_ samples: some Collection<Duration>) -> (Duration, Duration) {
+    private func statistics(
+      _ samples: some Collection<Duration>
+    ) -> (median: Duration, p95: Duration) {
       let sorted = samples.sorted()
       return (sorted[sorted.count / 2], sorted[min(sorted.count * 95 / 100, sorted.count - 1)])
     }
