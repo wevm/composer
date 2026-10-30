@@ -234,7 +234,7 @@ An update runs in this order:
 
 Details decided in milestone 3:
 
-- A changeset's edits are sequential replacements in the linear form, each in the coordinates the previous ones left. Touching edits coalesce, so typing a word is one edit. An edit whose replacement has the same length may change attributes only. Assigning `state.document` directly is reported as replacing the whole document; the editing methods (`replace`, `insert`, `delete`, `splitBlock`, `setMark`, `setLink`) report exactly what they touch.
+- A changeset's edits are sequential replacements in the linear form, each in the coordinates the previous ones left. Touching edits coalesce, so typing a word is one edit. An edit whose replacement has the same length may change attributes only. Assigning or mutating `state.document` directly is reported as the smallest replacement that turns the old linear form into the new one (text blocks compare with their containers, so a block that only moved into a list is reported too); the editing methods (`replace`, `insert`, `delete`, `splitBlock`, `setMark`, `setLink`) report exactly what they touch.
 - A transform is called with the content range of each text block edited since its previous pass, and edits through the same methods, so its own edits are dirty for the next pass. Passes stop at a fixed point or at `maxTransformPasses` (32). Hitting the limit means a transform never converges; the update keeps the state it reached and sets `reachedTransformLimit` on the changeset rather than trapping, so a bad plugin can't crash the app.
 - While marked text exists, edited ranges are carried over to the update that ends the composition, and transforms run on them then.
 - `ComposerController.state` is one observable property for now. Splitting it so a keystroke invalidates only text and selection readers belongs to the SwiftUI binding (milestone 6).
@@ -268,6 +268,13 @@ controller.run(.toggleBold)
 ### Undo
 
 Undo uses the native `UndoManager`, so ⌘Z, the Edit menu, and shake-to-undo work as users expect. Changesets are coalesced into undo groups (consecutive typing becomes one group). Composer does not keep its own undo stack.
+
+Details decided in milestone 4:
+
+- The controller registers undo with an `UndoRegistrar`, a main-actor protocol. `UndoManager` conforms on Apple platforms. Linux Foundation has no `UndoManager`, so `ComposerTesting` has `UndoStack` for Core tests. Engines set their view's undo manager.
+- An undo group restores a snapshot of the state before it as the smallest edit, and registers the reverse, so undo and redo alternate. Restoring runs no transforms, so undoing a transform's rewrite doesn't redo it.
+- Typing one character at the caret where the previous typing ended joins its group. Anything else (a newline, paste, deletion, a caret move) starts a new group. An IME composition is one group, registered when it ends.
+- Setting the selection outside the marked text commits the composition, as a click does in a text view, and the selection is clamped to the document.
 
 ### IME and marked text
 
@@ -648,6 +655,17 @@ public protocol TextEngine: AnyObject {
 }
 ```
 
+Details decided in milestone 4 (the AppKit engine, shared through `ComposerTextKit`):
+
+- **Text storage mirrors the linear form one character per unit**, so a document position is a storage offset and nothing maps between them. Text blocks are separated by `\n` (a paragraph break). A newline inside a paragraph or code block is stored as U+2028, so each text block is one TextKit paragraph. Each block's characters, and the separator after it, carry its paragraph style and a decoration that a custom `NSTextLayoutFragment` draws: list markers, task boxes, quote bars, and code backgrounds sit in the indent and take no characters.
+- **Tokens render as one attachment character (U+FFFC)**, drawn as the node's fallback text on a rounded background, until token rendering lands with the trigger plugins (milestone 7). Rendering a token as a styled text run, as [Token rendering](#token-rendering) intends, makes it several storage characters for one document unit, so it needs an offset map in the engine; that map is milestone 7's to add, together with `TokenStyle`.
+- **The text view never edits its own text.** `insertText`, marked text, key presses, editing commands, paste, and every other change AppKit proposes through `shouldChangeText` (drops, spelling corrections, word and line deletion, services) become controller input, and the view returns `false` and applies the update's changeset instead. That keeps one editing path for every engine and for Core tests.
+- **Changesets apply as one replacement**: `Changeset.combinedEdit` folds the sequential edits into the span they cover, and the applier replaces only that span of `NSTextStorage`. When the edit removes or crosses a block separator, the span grows to whole blocks, and on through the following blocks inside containers, because inserting or removing a list item renumbers the items after it.
+- **Marked text** lives in the document, and the view reports it through `hasMarkedText` and `markedRange`. Its underline is a TextKit rendering attribute, not a storage attribute, so the storage still mirrors the document.
+- **Keys:** `keyDown` gives ↩, ⇥, ⌫, and ⌦ to `ComposerController.handleKeyPress` (the keymap, then the default action) before AppKit's key bindings, and other keys to the keymap; unhandled keys go to AppKit (caret movement, word deletion, the input method). Unhandled ↩ and ⇥ combinations do nothing rather than inserting text. ⌘ and ⌃ combinations try the keymap in `performKeyEquivalent`, before menus. While marked text exists, every key goes to the input method. Editing selectors that reach `doCommand(by:)` (from key bindings such as ⌃H, or from input methods) run as the keys they stand for, and `complete:` does nothing, since suggestions are plugins.
+- **Selection direction:** AppKit doesn't say which end of a selection moves. A change made from the keyboard that keeps one end of the previous selection keeps it as the anchor (⇧← makes a backward selection); other selections run forward.
+- **Copy** writes plain text for now, with tokens as their labels. The three representations in [Copy](#copy) come with the clipboard work.
+
 ## SwiftUI: `ComposerSwiftUI`
 
 A thin binding: representables around the native views, plus compound primitives in the `Composer` namespace that share context through the environment.
@@ -863,6 +881,11 @@ let session = Session {
 
 - **Snapshot tests** cover `ComposerStyled` only. Headless layers are tested on state, not pixels.
 
+Conformance details decided in milestone 4:
+
+- A step is `Type` (characters one at a time, through the text input client; a newline is a press of ↩), `Marked(stages…, committing:)` (each stage becomes the marked text, then the commit replaces it, or `nil` leaves the composition open), `Press(key, modifiers:)` (a key event; not `Key`, which is Core's key type), `Paste`, `Select` (forward only, since text views don't expose direction), `Undo`, and `Redo`.
+- `ControllerDriver` is the reference: it sends steps straight to the controller, with ← and → moving by character or node as text views do. The native drivers run the same steps on a real text view in an offscreen window. `firstDivergence` compares the two after every step and reports the first step where the states differ, or where the engine's text storage differs from a fresh rendering of the document, which is what catches applier bugs. The allowlist is a list of named normalizations applied to both states; it is empty until the platform-specific Return and send rules land with their plugins.
+
 ### Performance
 
 Budgets are measured in CI against the native views:
@@ -874,6 +897,8 @@ Budgets are measured in CI against the native views:
 | Mount               | < 5 ms                              |
 
 The workload is chat-sized: usually under 2k characters, with pastes of up to about 20k. The design does not optimize for book-length documents.
+
+How they are measured (decided in milestone 4): the keystroke is the 95th percentile, over 300 characters typed into the middle of a 2k-character mixed document, of the update, transforms, the changeset applied to text storage, and layout of the viewport. "No visible hitch" for a 20k-character paste is taken as a median under 100 ms through viewport layout, the limit for a response to feel immediate; a paste is a one-off event, so one frame (16 ms) is not the bar. Mount is the median time to create a text view for a chat-sized document, add it to a window, and lay out its viewport, after warm-up.
 
 ### CI
 
@@ -920,4 +945,6 @@ Explicitly deferred work:
 
 ## Open questions
 
-None. Questions found during implementation go here until they are decided. The decision then moves into the relevant section.
+Questions found during implementation go here until they are decided. The decision then moves into the relevant section.
+
+- **Typing after an inline conversion.** Typed text takes the marks of the text before the caret, so after `**bold**` converts, the next characters are bold too. The markdown plugins need a way to end the mark: stored marks for the caret in `EditorState`, or a conversion that waits for the next boundary character. The Playground's stand-in converts on the boundary character (milestone 4).

@@ -129,23 +129,52 @@ extension ComposerController {
   /// movement, for example).
   ///
   /// The default actions: ↩ inserts a new block, ⇧↩ a line break, ⌫ and ⌦
-  /// delete, and ⇥ inserts a tab.
+  /// delete, and ⇥ inserts a tab. A default action commits any marked text
+  /// first, as its own undo group, the way text views commit a composition
+  /// that the input method passes a key through.
   @discardableResult
   public func handleKeyPress(_ key: Key, modifiers: KeyModifiers = []) -> Bool {
     if handleKey(key, modifiers: modifiers) { return true }
-    switch (key, modifiers) {
-    case (.return, []): insertNewline()
-    case (.return, [.shift]): insertLineBreak()
-    case (.delete, []), (.delete, [.shift]): deleteBackward()
-    case (.forwardDelete, []): deleteForward()
-    case (.tab, []): insertText("\t")
-    default: return false
-    }
+    let action: (() -> Void)? =
+      switch (key, modifiers) {
+      case (.return, []): insertNewline
+      case (.return, [.shift]): insertLineBreak
+      case (.delete, []), (.delete, [.shift]): deleteBackward
+      case (.forwardDelete, []): deleteForward
+      case (.tab, []): { self.insertText("\t") }
+      default: nil
+      }
+    guard let action else { return false }
+    unmarkText()
+    action()
     return true
   }
 }
 
 extension Document {
+  /// `selection` with its ends on character boundaries: a caret inside a
+  /// character moves to its start, and a range grows to whole characters.
+  func characterAligned(_ selection: Selection) -> Selection {
+    if selection.isCollapsed { return Selection(Position(characterStart(selection.head.offset))) }
+    let forward = selection.anchor <= selection.head
+    let range = selection.range
+    let lower = Position(characterStart(range.lowerBound.offset))
+    var upper = characterStart(range.upperBound.offset)
+    if upper != range.upperBound.offset { upper = boundary(after: upper) }
+    return forward
+      ? Selection(anchor: lower, head: Position(upper))
+      : Selection(anchor: Position(upper), head: lower)
+  }
+
+  /// The start of the character holding `offset`, or `offset` itself if it
+  /// is a boundary.
+  private func characterStart(_ offset: Int) -> Int {
+    guard offset > 0 else { return offset }
+    let before = boundary(before: offset)
+    let after = boundary(after: before)
+    return after <= offset ? offset : before
+  }
+
   /// The position one character or node before `offset`: the start of the
   /// grapheme cluster before it within its text run, or the separator before
   /// a text block's start.

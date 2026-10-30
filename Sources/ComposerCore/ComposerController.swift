@@ -189,12 +189,15 @@ public final class ComposerController {
 
   /// The selection. Setting it outside the marked text commits the
   /// composition, as clicking elsewhere does in a text view. It is clamped to
-  /// the document.
+  /// the document, and its ends move out of any character they fall inside
+  /// (a surrogate pair or grapheme cluster), as text views do: a caret moves
+  /// to the character's start, and a range grows to cover it.
   public var selection: Selection {
     get { state.selection }
     set {
       update { state in
-        let newValue = newValue.clamped(to: state.document.length)
+        let newValue = state.document.characterAligned(
+          newValue.clamped(to: state.document.length))
         if let marked = state.markedText,
           newValue.range.lowerBound < marked.range.lowerBound
             || newValue.range.upperBound > marked.range.upperBound

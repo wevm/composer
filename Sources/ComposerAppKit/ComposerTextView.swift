@@ -205,7 +205,9 @@
       _ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool
     ) {
       super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
-      guard !isApplying, let range = ranges.first?.rangeValue else { return }
+      // AppKit may have adjusted the ranges (to whole characters, say).
+      guard !isApplying else { return }
+      let range = selectedRange()
       let lower = Position(range.location)
       let upper = Position(NSMaxRange(range))
       let current = controller.selection

@@ -292,3 +292,39 @@ import Testing
     #expect(Changeset(selectionBefore: .caret(0), selectionAfter: .caret(1)).combinedEdit == nil)
   }
 }
+
+@MainActor @Suite struct SelectionAlignmentTests {
+  /// "a👍🏽b": "a" 0..<1, the emoji 1..<5 (two surrogate pairs), "b" 5..<6.
+  let controller = ComposerController(
+    EditorState(document: Document(blocks: [.paragraph([.text("a👍🏽b")])])))
+
+  @Test func aCaretInsideACharacterMovesToItsStart() {
+    for offset in 2...4 {
+      controller.selection = .caret(offset)
+      #expect(controller.selection == .caret(1), "caret \(offset)")
+    }
+    controller.selection = .caret(5)
+    #expect(controller.selection == .caret(5))
+  }
+
+  @Test func aRangeGrowsToWholeCharactersAndKeepsItsDirection() {
+    controller.selection = Selection(anchor: 3, head: 6)
+    #expect(controller.selection == Selection(anchor: 1, head: 6))
+    controller.selection = Selection(anchor: 2, head: 0)
+    #expect(controller.selection == Selection(anchor: 5, head: 0))
+    controller.selection = Selection(anchor: 0, head: 9)
+    #expect(controller.selection == Selection(anchor: 0, head: 6))
+  }
+
+  @Test func aKeyPressCommitsTheCompositionFirst() {
+    let driver = ControllerDriver()
+    driver.run(
+      Session {
+        Type("a")
+        Marked("か", committing: nil)
+        Press(.return, modifiers: .shift)
+        Undo()
+      })
+    #expect(driver.state.document.blocks == [.paragraph([.text("aか")])])
+  }
+}

@@ -13,11 +13,12 @@
       let paragraph =
         "Some **bold** words, _italic_ ones, `code`, and a [link](https://wevm.dev) in a "
         + "message that runs long enough to wrap across a few lines."
-      return [
+      let sections = [
         paragraph, "> " + paragraph, "- " + paragraph + "\n- [ ] " + paragraph,
         "```\nlet x = 1\nlet y = 2\n```", paragraph, "1. " + paragraph + "\n2. " + paragraph,
         paragraph, paragraph,
-      ].joined(separator: "\n\n")
+      ]
+      return (sections + sections).joined(separator: "\n\n")
     }()
 
     /// Main-thread work per keystroke: the update, transforms, the
@@ -98,6 +99,36 @@
       let (median, p95) = statistics(samples.dropFirst(5))
       report("mount", median: median, p95: p95)
       XCTAssertLessThan(median, .milliseconds(5), "median mount \(median)")
+    }
+
+    /// Where a 20k paste's time goes (diagnostic).
+    @MainActor func testPasteBreakdown() {
+      let line = "A pasted line of plain text, about sixty characters long ok.\n"
+      let pasted = String(String(repeating: line, count: 20_000 / line.count + 1).prefix(20_000))
+      let clock = ContinuousClock()
+      func time(_ name: String, _ body: () -> Void) {
+        report(name, median: clock.measure(body), p95: .zero)
+      }
+      let mapper = AttributeMapper(styles: .standard)
+      let lines = Document(blocks: [.paragraph([.text(pasted)])])
+      let blocks = MarkdownCodec().parse(pasted.replacingOccurrences(of: "\n", with: "\n\n"))
+      time("map one 20k paragraph") { _ = mapper.attributedString(for: lines) }
+      time("map 334 paragraphs") { _ = mapper.attributedString(for: blocks) }
+      for (name, document) in [("one paragraph", lines), ("334 paragraphs", blocks)] {
+        let driver = AppKitDriver(EditorState(document: Document.empty))
+        layOut(driver.textView)
+        time("setDocument, \(name)") { driver.controller.setDocument(document) }
+        time("layout, \(name)") { layOut(driver.textView) }
+        time("type at end, \(name)") {
+          driver.textView.insertText(
+            "a", replacementRange: NSRange(location: NSNotFound, length: 0))
+          layOut(driver.textView)
+        }
+      }
+      let storage = NSTextStorage()
+      time("bare storage replace 20k") {
+        storage.replaceCharacters(in: NSRange(), with: mapper.attributedString(for: lines))
+      }
     }
 
     // MARK: Helpers
