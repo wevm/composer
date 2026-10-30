@@ -209,16 +209,9 @@
       super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
       // AppKit may have adjusted the ranges (to whole characters, say).
       guard !isApplying else { return }
-      let range = selectedRange()
-      let lower = Position(range.location)
-      let upper = Position(NSMaxRange(range))
       let current = controller.selection
-      var selection = Selection(lower..<upper)
-      // AppKit doesn't say which end moves. From the keyboard, the end that
-      // stayed put is the anchor; otherwise selections run forward.
-      if isHandlingKey, lower != upper, upper == current.anchor, lower != current.anchor {
-        selection = Selection(anchor: upper, head: lower)
-      }
+      let selection = inferredSelection(
+        selectedRange(), previous: current, fromKeyboard: isHandlingKey)
       guard selection != current else { return }
       let wasMarked = hasMarkedText()
       controller.selection = selection
@@ -315,19 +308,9 @@
     open override func copy(_ sender: Any?) {
       let range = selectedRange()
       guard range.length > 0, let textStorage else { return }
-      let selected = textStorage.attributedSubstring(from: range)
-      var text = ""
-      selected.enumerateAttribute(
-        .attachment, in: NSRange(location: 0, length: selected.length)
-      ) { value, run, _ in
-        if let token = value as? TokenAttachment {
-          text += token.label
-        } else {
-          text += documentText((selected.string as NSString).substring(with: run))
-        }
-      }
       NSPasteboard.general.clearContents()
-      NSPasteboard.general.setString(text, forType: .string)
+      NSPasteboard.general.setString(
+        plainText(of: textStorage.attributedSubstring(from: range)), forType: .string)
     }
 
     open override func cut(_ sender: Any?) {

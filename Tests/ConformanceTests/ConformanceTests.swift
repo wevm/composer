@@ -1,23 +1,28 @@
 // Scripted sessions against a real `UITextView` (iOS Simulator) and
 // `NSTextView`. Apple-only.
-#if canImport(AppKit) && !targetEnvironment(macCatalyst)
-  import AppKit
-  import ComposerAppKit
+#if canImport(UIKit) || canImport(AppKit)
+  #if canImport(UIKit)
+    import ComposerUIKit
+    import UIKit
+  #else
+    import AppKit
+    import ComposerAppKit
+  #endif
   import ComposerCore
   import ComposerTesting
   import Testing
 
   /// Each session runs on the controller alone and on a real
-  /// `ComposerTextView`, and the two must agree after every step: the same
-  /// `EditorState`, and text storage that matches a fresh rendering of the
-  /// document.
-  @MainActor @Suite(.serialized) struct AppKitConformanceTests {
+  /// `ComposerTextView` (`UITextView` on iOS, `NSTextView` on macOS), and the
+  /// two must agree after every step: the same `EditorState`, and text
+  /// storage that matches a fresh rendering of the document.
+  @MainActor @Suite(.serialized) struct NativeConformanceTests {
     func expectConformance(
       _ session: Session, from state: EditorState = EditorState(),
       plugins: [any ComposerPlugin] = [], sourceLocation: SourceLocation = #_sourceLocation
     ) {
       let reference = ControllerDriver(state, plugins: plugins)
-      let engine = AppKitDriver(state, plugins: plugins)
+      let engine = NativeDriver(state, plugins: plugins)
       if let divergence = firstDivergence(of: session, reference: reference, engine: engine) {
         Issue.record("\(divergence)", sourceLocation: sourceLocation)
       }
@@ -216,8 +221,9 @@
 
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
-      let driver = AppKitDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))
-      let storage = try #require(driver.textView.textStorage)
+      let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))
+      let textStorage: NSTextStorage? = driver.textView.textStorage
+      let storage = try #require(textStorage)
       let recorder = EditRecorder()
       storage.delegate = recorder
       driver.run(Session { Type("!") })

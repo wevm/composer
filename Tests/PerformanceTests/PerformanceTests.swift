@@ -1,13 +1,23 @@
 // The performance budgets (DESIGN.md, Performance), measured against the
-// native text views. XCTest, as the design asks for performance tests.
-#if canImport(AppKit) && !targetEnvironment(macCatalyst)
-  import AppKit
-  import ComposerAppKit
+// native text views: `NSTextView` on macOS, `UITextView` on the iOS
+// Simulator. XCTest, as the design asks for performance tests.
+#if canImport(UIKit) || canImport(AppKit)
+  #if canImport(UIKit)
+    import ComposerUIKit
+    import UIKit
+
+    typealias PlatformTextView = UITextView
+  #else
+    import AppKit
+    import ComposerAppKit
+
+    typealias PlatformTextView = NSTextView
+  #endif
   import ComposerCore
   import ComposerTesting
   import XCTest
 
-  final class AppKitPerformanceTests: XCTestCase {
+  final class PerformanceTests: XCTestCase {
     /// A chat-sized document: about 2,000 characters of mixed blocks.
     static let chatMarkdown: String = {
       let paragraph =
@@ -23,23 +33,22 @@
 
     /// Main-thread work per keystroke: the update, transforms, the
     /// changeset applied to text storage, and layout of the viewport.
-    /// Typing goes through `insertText`, as the input system delivers it.
+    /// Typing goes through the text input methods, as the keyboard or input
+    /// system delivers it.
     @MainActor func testKeystrokeIsUnder4Milliseconds() {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       XCTAssertGreaterThan(document.length, 1_800)
-      let driver = AppKitDriver(EditorState(document: document))
-      let textView = driver.textView
-      layOut(textView)
+      let driver = NativeDriver(EditorState(document: document))
+      layOut(driver.textView)
       // Typing in the middle of a paragraph, the common case.
-      textView.setSelectedRange(NSRange(location: document.length / 2, length: 0))
-      let noRange = NSRange(location: NSNotFound, length: 0)
+      driver.perform(.select(Position(document.length / 2)..<Position(document.length / 2)))
       var samples: [Duration] = []
       for index in 0..<300 {
-        let character = index % 10 == 9 ? " " : "a"
+        let step = Step.type(index % 10 == 9 ? " " : "a")
         samples.append(
           ContinuousClock().measure {
-            textView.insertText(character, replacementRange: noRange)
-            layOut(textView)
+            driver.perform(step)
+            layOut(driver.textView)
           })
       }
       let (median, p95) = statistics(samples.dropFirst(20))
@@ -55,21 +64,17 @@
     /// limit for a response to feel immediate (see DESIGN.md).
     @MainActor func testPasteOf20kCharactersHasNoHitch() {
       let line = "A pasted line of plain text, about sixty characters long ok.\n"
-      let pasted = String(repeating: line, count: 20_000 / line.count + 1).prefix(20_000)
+      let pasted = String(String(repeating: line, count: 20_000 / line.count + 1).prefix(20_000))
       var samples: [Duration] = []
       for _ in 0..<6 {
-        let driver = AppKitDriver(
+        let driver = NativeDriver(
           EditorState(document: MarkdownCodec().parse(Self.chatMarkdown)))
         layOut(driver.textView)
-        let pasteboard = NSPasteboard.withUniqueName()
-        pasteboard.clearContents()
-        pasteboard.setString(String(pasted), forType: .string)
         samples.append(
           ContinuousClock().measure {
-            driver.textView.paste(from: pasteboard)
+            driver.perform(.paste(.plainText(pasted)))
             layOut(driver.textView)
           })
-        pasteboard.releaseGlobally()
         XCTAssertGreaterThan(driver.controller.document.length, 21_000)
       }
       let (median, p95) = statistics(samples.dropFirst())
@@ -93,15 +98,19 @@
     }
 
     /// With a 2k-character document, layout dominates mounting, and a plain
-    /// TextKit 2 `NSTextView` showing the same text is the floor: the
-    /// composer must stay close to it.
+    /// TextKit 2 text view showing the same text is the floor: the composer
+    /// must stay close to it.
     @MainActor func testMountOfAChatSizedDocumentStaysNearTextKit() {
       let document = MarkdownCodec().parse(Self.chatMarkdown)
       let text = AttributeMapper(styles: .standard).attributedString(for: document)
-      let plain = mountTime(name: "mount 2k, plain NSTextView") { frame in
-        let view = NSTextView(usingTextLayoutManager: true)
+      let plain = mountTime(name: "mount 2k, plain text view") { frame in
+        let view = PlatformTextView(usingTextLayoutManager: true)
         view.frame = frame
-        view.textStorage?.setAttributedString(text)
+        #if canImport(UIKit)
+          view.attributedText = text
+        #else
+          view.textStorage?.setAttributedString(text)
+        #endif
         return view
       }
       let composer = mountTime(name: "mount 2k, composer") {
@@ -112,25 +121,34 @@
         composer, plain * 1.25 + .milliseconds(1), "composer \(composer), plain \(plain)")
     }
 
+    // MARK: Helpers
+
     /// The median time to create a view, add it to a window, and lay out
     /// its viewport, after warm-up.
     @MainActor private func mountTime(
-      name: String, _ make: (NSRect) -> NSTextView
+      name: String, _ make: (CGRect) -> PlatformTextView
     ) -> Duration {
-      let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
-        backing: .buffered, defer: false)
-      window.isReleasedWhenClosed = false
-      defer { window.close() }
+      #if canImport(UIKit)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 320))
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let container: UIView = window
+      #else
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container: NSView = window.contentView!
+      #endif
       var samples: [Duration] = []
       for _ in 0..<30 {
-        var mounted: NSTextView?
+        var mounted: PlatformTextView?
         samples.append(
           ContinuousClock().measure {
-            let view = make(window.contentView!.bounds)
-            window.contentView!.addSubview(view)
-            view.textLayoutManager?.textViewportLayoutController.layoutViewport()
-            view.layoutSubtreeIfNeeded()
+            let view = make(container.bounds)
+            container.addSubview(view)
+            layOut(view)
             mounted = view
           })
         mounted?.removeFromSuperview()
@@ -140,11 +158,13 @@
       return median
     }
 
-    // MARK: Helpers
-
-    @MainActor private func layOut(_ textView: ComposerTextView) {
+    @MainActor private func layOut(_ textView: PlatformTextView) {
       textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
-      textView.layoutSubtreeIfNeeded()
+      #if canImport(UIKit)
+        textView.layoutIfNeeded()
+      #else
+        textView.layoutSubtreeIfNeeded()
+      #endif
     }
 
     private func statistics(_ samples: some Collection<Duration>) -> (Duration, Duration) {
@@ -158,7 +178,14 @@
         let value = Double(seconds) * 1_000 + Double(attoseconds) / 1e15
         return String(format: "%.3f ms", value)
       }
-      print("[performance] \(name): median \(milliseconds(median)), p95 \(milliseconds(p95))")
+      #if canImport(UIKit)
+        let platform = "iOS"
+      #else
+        let platform = "macOS"
+      #endif
+      print(
+        "[performance] \(platform) \(name): median \(milliseconds(median)), "
+          + "p95 \(milliseconds(p95))")
     }
   }
 #endif

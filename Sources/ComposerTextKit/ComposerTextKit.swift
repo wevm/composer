@@ -101,3 +101,34 @@
     return storageText.replacingOccurrences(of: "\u{FFFC}", with: "")
   }
 #endif
+
+#if canImport(UIKit) || canImport(AppKit)
+  /// The selection a text view's selected range stands for. Text views don't
+  /// say which end of a selection moved: a change made from the keyboard
+  /// that keeps one end of the previous selection keeps that end as the
+  /// anchor, so ⇧← makes a backward selection. Other selections run forward.
+  package func inferredSelection(
+    _ range: NSRange, previous: Selection, fromKeyboard: Bool
+  ) -> Selection {
+    let lower = Position(range.location)
+    let upper = Position(range.location + range.length)
+    if fromKeyboard, lower != upper, upper == previous.anchor, lower != previous.anchor {
+      return Selection(anchor: upper, head: lower)
+    }
+    return Selection(lower..<upper)
+  }
+
+  /// Text from storage for the clipboard: tokens become their labels.
+  package func plainText(of text: NSAttributedString) -> String {
+    var result = ""
+    text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) {
+      value, run, _ in
+      if let token = value as? TokenAttachment {
+        result += token.label
+      } else {
+        result += documentText((text.string as NSString).substring(with: run))
+      }
+    }
+    return result
+  }
+#endif
