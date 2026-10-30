@@ -176,6 +176,8 @@ public struct EditorState: Sendable, Equatable {
     /// input method's commit: input rules convert what is typed, never a
     /// paste.
     var isTyping = false
+    /// Text a hard length limit removed (see `MaxLength`).
+    var truncated = ""
   }
 
   // Safe to share across threads: storage is only mutated when uniquely

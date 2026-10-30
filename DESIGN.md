@@ -555,6 +555,15 @@ func willSend(_ message: inout ComposerMessage) async throws -> SendDecision
 - A hook can modify the message, return `.cancel` to veto the send (the draft stays), or throw (the draft is restored, as when the send itself throws).
 - Hooks that only observe return `.proceed`.
 
+Details decided in milestone 8:
+
+- Hooks run before the composer clears, while the draft still shows; a cancel or a throw from a hook leaves it as it is. The composer clears once the hooks proceed (with `.immediately`), or once the send succeeds (with `.afterSuccess`).
+- If something is written while a send is in flight (during the hooks, or during an `.afterSuccess` send), it isn't cleared, and a failed send doesn't overwrite it to restore the draft. Nothing typed is ever lost.
+- Clearing after a send isn't undoable, and the undo history of the sent draft is dropped (`UndoRegistrar.removeAllActions()`), so ⌘Z can't bring back a message that was sent.
+- The send action is enabled when there is something to send (any token, non-whitespace text, or an attachment), no attachment is pending, uploading, or failed, a soft `MaxLength` isn't exceeded, and, with `.afterSuccess`, no send is in flight. A failed attachment blocks sending until it is removed or retried, so a message never silently goes without a file the user added.
+- `ComposerController.send()` returns a `SendOutcome` (`sent`, `cancelled`, `failed`, `unavailable`). Sends started by a key or the button report failures to `SendAction.onFailure`.
+- The send action's default placement is `.trailing` on iOS and `.none` on macOS, where ↩ sends (see the example under [Actions](#actions)); `.placement(_:)` changes it. ↩ sending is the macOS default and a `returnSends:` parameter, so it is testable on Linux.
+
 #### Attachments
 
 v1 has an attachments tray only, no inline attachments.
@@ -572,12 +581,19 @@ public struct Attachment: Sendable, Identifiable {
 - Paste, drop, and the picker are each a source plugin. Images in a rich paste go to the Attachments plugin when it is enabled (see [Clipboard](#clipboard)).
 - Send is blocked while an attachment is uploading. This is the default `isEnabled` of the send action, so it can be overridden.
 
+Details decided in milestone 8:
+
+- `Attachment` has an optional `name`, for the tray and VoiceOver. Equality compares the id, name, and status (any two failures are equal); the payload is taken as fixed for an id, since `any Sendable` can't be compared.
+- `AttachmentsPlugin(onAdd:)` holds the tray: `onAdd` sees every attachment added from any source, so the app starts the upload there and reports progress with `setStatus(_:of:)`. Status updates don't register undo; adding and removing do. The picker is its own plugin, `AttachmentPicker`, a leading action whose `pick` closure shows the app's picker.
+
 #### Reply and edit
 
 - A typed `context` in the state, rendered in the Header slot. Esc clears it.
 - While editing, the send label becomes "Save".
 - ↑ in an empty composer edits the last message. This is a hook, because only the app knows what the last message is.
 - The context is included in the `ComposerMessage`.
+
+Details decided in milestone 8: the context is a `ComposerContext` with an `id` and a `kind` (`.reply` or `.edit`), compared by the two, so the app's type can carry anything. The plugin is `ReplyAndEdit(editLast:)`; `editLast` sets an edit context and the message's document with `setContext(_:document:)` and returns whether there was a message to edit. Setting the context is undoable, like any update.
 
 #### Max length
 
@@ -590,6 +606,12 @@ MaxLength(5_000, mode: .soft)
 MaxLength(5_000, mode: .hard, count: { $0.plainText.count })
   .onDidTruncate { removed in toast("Pasted text was shortened") }
 ```
+
+Details decided in milestone 8:
+
+- The default count is `String.count` (characters) of the markdown. The status (count, limit, mode) is in the state under `MaxLength.statusKey`, for footer counters; it is computed when the document changes, and for the initial state.
+- A hard limit applies to any update that takes the count over the limit and past where it was, including `setDocument`. It keeps the longest start of the inserted span that fits, on character boundaries (so an emoji is never split), found by binary search, and removes the rest; a typed character that doesn't fit is dropped. `onDidTruncate` fires when more than one character was removed, which is a paste or a programmatic insertion, not typing.
+- It runs as an update filter: after transforms and before state hooks, with the state before the update. Filters are internal to Core for now.
 
 #### Type-to-focus
 
@@ -656,6 +678,8 @@ ForEach(composer.actions(.trailing)) { action in
 ```
 
 Consumers either loop over a placement, as above, or place individual actions by id.
+
+Details decided in milestone 8: `label` is a `LocalizedText`, which is `LocalizedStringResource` on Apple platforms and `String` on Linux (as for key binding titles). An action also has an optional `editingLabel`, shown while an edit context is set (send's "Save"). The controller keeps the sets of enabled and visible actions as their own observed properties, recomputed on every update but assigned only when they change, so a keystroke invalidates a button only when it flips.
 
 ### Hover
 

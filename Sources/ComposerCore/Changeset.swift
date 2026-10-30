@@ -23,6 +23,9 @@ public struct Changeset: Sendable, Hashable {
   /// Whether transforms were stopped by the pass limit instead of reaching a
   /// fixed point, which means some transform never converges.
   public var reachedTransformLimit: Bool
+  /// The text a hard `MaxLength` removed from what the update inserted, if
+  /// longer than one character.
+  public internal(set) var truncated = ""
 
   public init(
     edits: [Edit] = [], selectionBefore: Selection, selectionAfter: Selection,

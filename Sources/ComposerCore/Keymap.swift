@@ -1,12 +1,7 @@
 import Foundation
 
-#if canImport(Darwin)
-  /// A key binding's title, for menus and the iPad shortcut overlay.
-  public typealias KeyBindingTitle = LocalizedStringResource
-#else
-  /// A key binding's title. Linux Foundation has no `LocalizedStringResource`.
-  public typealias KeyBindingTitle = String
-#endif
+/// A key binding's title, for menus and the iPad shortcut overlay.
+public typealias KeyBindingTitle = LocalizedText
 
 /// A key, independent of any UI framework. Letters are stored lowercase; the
 /// Shift modifier says whether Shift was held.

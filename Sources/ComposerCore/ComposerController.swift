@@ -15,8 +15,27 @@ public final class ComposerController {
       if isEmpty != self.isEmpty { self.isEmpty = isEmpty }
       let session = state[Suggestions.sessionKey]
       if session != suggestionSession { suggestionSession = session }
+      let context = state[EditorState.contextKey]
+      if context != contextValue { contextValue = context }
+      if state.attachments != attachments { attachments = state.attachments }
+      refreshActions()
     }
   }
+  /// The reply or edit context (see `EditorState.context`). Observed on its
+  /// own, so a header is invalidated only when it changes.
+  public var context: (any ComposerContext)? { contextValue?.context }
+  private var contextValue: ContextValue?
+  /// The attachments tray (see `EditorState.attachments`), observed on its
+  /// own.
+  public private(set) var attachments: [Attachment] = []
+  /// The ids of the enabled and the visible actions (see `isEnabled(_:)`).
+  public internal(set) var enabledActions: Set<ComposerAction.ID> = []
+  public internal(set) var visibleActions: Set<ComposerAction.ID> = []
+  /// How many sends are in flight.
+  public internal(set) var sendsInFlight = 0 {
+    didSet { refreshActions() }
+  }
+  public var isSending: Bool { sendsInFlight > 0 }
   /// The open suggestion session, if any (see `suggestions`). Observed on
   /// its own, so a suggestion list is invalidated only while it is open.
   public private(set) var suggestionSession: SuggestionSession?
@@ -42,6 +61,14 @@ public final class ComposerController {
   /// The most transform passes one update runs. Reaching it means a
   /// transform never converges; the update stops there and reports it.
   @ObservationIgnored public var maxTransformPasses = 32
+  /// The actions plugins added, in registration order.
+  @ObservationIgnored public let actions: [ComposerAction]
+  @ObservationIgnored let sendConfiguration: SendConfiguration?
+  @ObservationIgnored let willSend: [(priority: Priority, hook: WillSendHook)]
+  @ObservationIgnored let attachmentAdded:
+    (@MainActor @Sendable (Attachment, ComposerController) -> Void)?
+  @ObservationIgnored let updateFilters:
+    [@Sendable (EditorState, inout EditorState, Schema) -> Void]
 
   /// The text view showing this composer. Every update's changeset is
   /// applied to it.
@@ -81,7 +108,20 @@ public final class ComposerController {
     self.triggers = registry.triggers
     self.suggestionSession = state[Suggestions.sessionKey]
     self.keymap = Keymap(registry.keyBindings)
+    self.actions = registry.actions
+    self.sendConfiguration = registry.send
+    self.willSend = registry.willSend
+    self.attachmentAdded = registry.attachmentAdded
+    self.updateFilters = registry.updateFilters
+    self.contextValue = state[EditorState.contextKey]
+    self.attachments = state.attachments
     for registration in registry.commandHandlers { _ = bus.add(registration) }
+    // The initial state goes through the filters and hooks once, so state
+    // they derive (a length status) is there from the start.
+    if !updateFilters.isEmpty || !stateHooks.isEmpty {
+      update(undo: .none, runsTransforms: false) { _ in }
+    }
+    refreshActions()
   }
 
   // MARK: Updates
@@ -118,8 +158,12 @@ public final class ComposerController {
     } else if runsTransforms {
       (passes, reachedLimit) = runTransforms(&state)
     }
+    if state.markedText == nil {
+      for filter in updateFilters { filter(before, &state, schema) }
+    }
     for hook in stateHooks { hook.body(&state) }
     let edits = state.tracking!.edits
+    let truncated = state.tracking!.truncated
     state.tracking = nil
     // Moving the caret ends the stored marks and transient plugin state,
     // unless this update set them; a composition keeps them until it
@@ -139,9 +183,10 @@ public final class ComposerController {
       return Changeset(selectionBefore: selectionBefore, selectionAfter: selectionBefore)
     }
     self.state = state
-    let changeset = Changeset(
+    var changeset = Changeset(
       edits: edits, selectionBefore: selectionBefore, selectionAfter: state.selection,
       transformPasses: passes, reachedTransformLimit: reachedLimit)
+    changeset.truncated = truncated
     recordUndo(behavior, before: before, changeset)
     engine?.apply(changeset, from: state)
     for observer in didUpdate { observer(self, changeset) }

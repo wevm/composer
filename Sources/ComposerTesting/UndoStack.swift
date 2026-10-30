@@ -23,6 +23,11 @@ public final class UndoStack: UndoRegistrar {
     }
   }
 
+  public func removeAllActions() {
+    undos.removeAll()
+    redos.removeAll()
+  }
+
   public func undo() {
     guard let action = undos.popLast() else { return }
     isUndoing = true

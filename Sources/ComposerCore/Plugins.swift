@@ -44,6 +44,14 @@ public struct PluginRegistry: Sendable {
   var paste = PasteConfiguration()
   /// Colors code blocks (see `MarkdownCodeBlocks`).
   public var codeHighlighter: (any CodeHighlighter)?
+  /// The actions, in registration order (see `addAction`).
+  public internal(set) var actions: [ComposerAction] = []
+  var send: SendConfiguration?
+  var willSend: [(priority: Priority, hook: WillSendHook)] = []
+  var attachmentAdded: (@MainActor @Sendable (Attachment, ComposerController) -> Void)?
+  /// Run in every update after transforms and before state hooks, with the
+  /// state before the update: they may edit, as a hard length limit does.
+  var updateFilters: [@Sendable (EditorState, inout EditorState, Schema) -> Void] = []
 
   public init() {}
 

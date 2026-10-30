@@ -9,6 +9,8 @@ public protocol UndoRegistrar: AnyObject {
   /// Registers `action` as one undo group (or, while undoing or redoing, as
   /// the reverse action).
   func registerUndoGroup(_ action: @escaping @MainActor @Sendable () -> Void)
+  /// Forgets every undo and redo group, as sending does.
+  func removeAllActions()
 }
 
 #if canImport(Darwin)

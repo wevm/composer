@@ -396,6 +396,19 @@ enum CoreStrings {
     #endif
   }
 
+  #if canImport(Darwin)
+    static var send: LocalizedText { LocalizedStringResource("Send", bundle: bundle) }
+    static var save: LocalizedText { LocalizedStringResource("Save", bundle: bundle) }
+    static var attach: LocalizedText { LocalizedStringResource("Attach", bundle: bundle) }
+    private static var bundle: LocalizedStringResource.BundleDescription {
+      .atURL(Bundle.module.bundleURL)
+    }
+  #else
+    static var send: LocalizedText { "Send" }
+    static var save: LocalizedText { "Save" }
+    static var attach: LocalizedText { "Attach" }
+  #endif
+
   static func hashtag(_ tag: String) -> String {
     #if canImport(Darwin)
       String(localized: "hashtag, \(tag)", bundle: .module)

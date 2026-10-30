@@ -1,6 +1,12 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Attach" : {
+      "comment" : "The attachment picker action's label.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Attach" } }
+      }
+    },
     "hashtag, %@" : {
       "comment" : "VoiceOver label of a hashtag token: the tag.",
       "localizations" : {
@@ -11,6 +17,18 @@
       "comment" : "VoiceOver label of a mention token: the name.",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "mention, %@" } }
+      }
+    },
+    "Save" : {
+      "comment" : "The send action's label while editing a sent message.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save" } }
+      }
+    },
+    "Send" : {
+      "comment" : "The send action's label.",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } }
       }
     }
   },
