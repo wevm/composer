@@ -21,6 +21,9 @@ targets:
     dependencies:
       - package: Composer
         product: ComposerCore
+      # The macOS demo's engine; its module is empty on iOS.
+      - package: Composer
+        product: ComposerAppKit
       - package: Composer
         product: ComposerSwiftUI
       - package: Composer

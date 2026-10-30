@@ -7,11 +7,15 @@ import SwiftUI
 struct PlaygroundApp: App {
   var body: some Scene {
     WindowGroup {
-      NavigationStack {
-        ContentUnavailableView(
-          "Composer Playground", systemImage: "text.cursor",
-          description: Text("The plugin demos land with the engines."))
-      }
+      #if os(macOS)
+        MacPlayground()
+      #else
+        NavigationStack {
+          ContentUnavailableView(
+            "Composer Playground", systemImage: "text.cursor",
+            description: Text("The iOS demo lands with the UIKit engine."))
+        }
+      #endif
     }
   }
 }
