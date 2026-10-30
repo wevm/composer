@@ -112,7 +112,7 @@ import Testing
         applied.append((changeset, state))
       }
       var selectionRects: [CGRect] { [] }
-      func rect(for range: DocumentRange) -> CGRect { .zero }
+      func rect(for range: DocumentRange) -> CGRect { CGRect() }
     }
     let engine = Engine()
     let controller = self.controller()

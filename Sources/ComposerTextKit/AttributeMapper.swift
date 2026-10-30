@@ -123,12 +123,12 @@
           text.draw(at: textOrigin)
         }
       #else
-        nonisolated(unsafe) let text = text
-        nonisolated(unsafe) let background = background
+        nonisolated(unsafe) let drawnText = text
+        nonisolated(unsafe) let fill = background
         image = NSImage(size: size, flipped: true) { rect in
-          background.setFill()
+          fill.setFill()
           NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-          text.draw(at: textOrigin)
+          drawnText.draw(at: textOrigin)
           return true
         }
       #endif
