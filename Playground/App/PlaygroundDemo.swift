@@ -1,15 +1,7 @@
-import ComposerCore
+import ComposerSwiftUI
 import SwiftUI
 
-#if os(macOS)
-  import AppKit
-  import ComposerAppKit
-#else
-  import ComposerUIKit
-  import UIKit
-#endif
-
-/// The demo: a composer on the platform's `ComposerTextView`, with markdown
+/// The demo: a composer from `ComposerSwiftUI`'s primitives, with markdown
 /// converting as you type and a live readout of the document.
 struct PlaygroundDemo: View {
   enum Readout: String, CaseIterable, Identifiable {
@@ -20,6 +12,8 @@ struct PlaygroundDemo: View {
 
   @State private var controller = ComposerController(plugins: [LiveMarkdown()])
   @State private var readout = Readout.markdown
+  @State private var isExpanded = false
+  @FocusState private var isFocused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -36,11 +30,23 @@ struct PlaygroundDemo: View {
       )
       .font(.callout)
       .foregroundStyle(.secondary)
-      ComposerEditor(controller: controller)
-        .frame(minHeight: 160)
-        .padding(6)
-        .background(.background, in: .rect(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+      Composer.Root(controller) {
+        Composer.Input("Message", isExpanded: $isExpanded)
+          .focused($isFocused)
+          .accessibilityIdentifier("composer")
+          #if os(iOS)
+            .composerKeyboardAccessory { accessory }
+          #endif
+          .padding(6)
+          .background(.background, in: .rect(cornerRadius: 8))
+          .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+          .frame(maxHeight: isExpanded ? .infinity : nil)
+        Composer.Footer { state in
+          Text(summary(of: state))
+            .font(.callout.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+      }
       HStack {
         Picker("Readout", selection: $readout) {
           ForEach(Readout.allCases) { Text($0.rawValue).tag($0) }
@@ -49,41 +55,38 @@ struct PlaygroundDemo: View {
         .labelsHidden()
         .fixedSize()
         Spacer()
-        Text(selectionSummary).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+        Toggle("Expanded", isOn: $isExpanded).fixedSize()
       }
-      ScrollView {
-        Text(readoutText)
-          .font(.system(.body, design: .monospaced))
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(8)
+      if !isExpanded {
+        ReadoutView(controller: controller, readout: readout)
       }
-      .frame(minHeight: 140)
-      .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
     }
     .padding(16)
+    .onAppear { isFocused = true }
     #if os(macOS)
       .frame(minWidth: 560, minHeight: 520)
     #endif
   }
 
-  private var readoutText: String {
-    let document = controller.state.document
-    switch readout {
-    case .markdown:
-      return MarkdownCodec(schema: controller.schema).serialize(document)
-    case .json:
-      guard let data = try? JSONCodec(schema: controller.schema).encode(document),
-        let object = try? JSONSerialization.jsonObject(with: data),
-        let pretty = try? JSONSerialization.data(
-          withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-      else { return "" }
-      return String(decoding: pretty, as: UTF8.self)
+  #if os(iOS)
+    /// The keyboard accessory slot: undo, redo, and done.
+    private var accessory: some View {
+      HStack(spacing: 20) {
+        Button("Undo", systemImage: "arrow.uturn.backward") { undoManager?.undo() }
+        Button("Redo", systemImage: "arrow.uturn.forward") { undoManager?.redo() }
+        Spacer()
+        Button("Done") { isFocused = false }.bold()
+      }
+      .labelStyle(.iconOnly)
+      .padding(.horizontal, 16)
+      .frame(height: 44)
+      .background(.bar)
     }
-  }
 
-  private var selectionSummary: String {
-    let state = controller.state
+    private var undoManager: UndoManager? { controller.undoManager as? UndoManager }
+  #endif
+
+  private func summary(of state: EditorState) -> String {
     var summary = "selection \(state.selection) · \(state.document.length) units"
     if let marked = state.markedText {
       summary += " · composing \(marked.range.lowerBound)..<\(marked.range.upperBound)"
@@ -110,56 +113,36 @@ struct PlaygroundDemo: View {
     """
 }
 
-#if os(macOS)
-  /// A thin bridge to `ComposerTextView` until `ComposerSwiftUI` lands: a
-  /// scroll view holding the text view, focused when it appears.
-  struct ComposerEditor: NSViewRepresentable {
-    let controller: ComposerController
+/// The live readout of the document. It reads the state, so it updates with
+/// every keystroke, apart from the rest of the demo.
+struct ReadoutView: View {
+  let controller: ComposerController
+  let readout: PlaygroundDemo.Readout
 
-    func makeNSView(context: Context) -> NSScrollView {
-      let scrollView = NSScrollView()
-      scrollView.hasVerticalScroller = true
-      scrollView.drawsBackground = false
-      scrollView.borderType = .noBorder
-      let textView = ComposerTextView(
-        controller: controller, frame: NSRect(x: 0, y: 0, width: 480, height: 160))
-      textView.minSize = .zero
-      textView.maxSize = NSSize(
-        width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-      textView.setAccessibilityIdentifier("composer")
-      scrollView.documentView = textView
-      DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
-      return scrollView
+  var body: some View {
+    ScrollView {
+      Text(readoutText)
+        .font(.system(.body, design: .monospaced))
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
     }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {}
+    .frame(minHeight: 140)
+    .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
   }
-#else
-  /// A thin bridge to `ComposerTextView` until `ComposerSwiftUI` lands, with
-  /// a toolbar in the keyboard accessory slot.
-  struct ComposerEditor: UIViewRepresentable {
-    let controller: ComposerController
 
-    func makeUIView(context: Context) -> ComposerTextView {
-      let textView = ComposerTextView(controller: controller)
-      textView.accessibilityIdentifier = "composer"
-      let toolbar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-      toolbar.items = [
-        UIBarButtonItem(
-          title: "Undo", image: UIImage(systemName: "arrow.uturn.backward"),
-          primaryAction: UIAction { [weak textView] _ in textView?.undoManager?.undo() }),
-        UIBarButtonItem(
-          title: "Redo", image: UIImage(systemName: "arrow.uturn.forward"),
-          primaryAction: UIAction { [weak textView] _ in textView?.undoManager?.redo() }),
-        .flexibleSpace(),
-        UIBarButtonItem(
-          systemItem: .done,
-          primaryAction: UIAction { [weak textView] _ in textView?.resignFirstResponder() }),
-      ]
-      textView.keyboardAccessoryView = toolbar
-      return textView
+  private var readoutText: String {
+    let document = controller.state.document
+    switch readout {
+    case .markdown:
+      return MarkdownCodec(schema: controller.schema).serialize(document)
+    case .json:
+      guard let data = try? JSONCodec(schema: controller.schema).encode(document),
+        let object = try? JSONSerialization.jsonObject(with: data),
+        let pretty = try? JSONSerialization.data(
+          withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+      else { return "" }
+      return String(decoding: pretty, as: UTF8.self)
     }
-
-    func updateUIView(_ textView: ComposerTextView, context: Context) {}
   }
-#endif
+}
