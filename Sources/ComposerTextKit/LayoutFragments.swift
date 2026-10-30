@@ -89,34 +89,21 @@
       let (containerLeft, containerWidth) = container
       let left = point.x + containerLeft
       if decoration.isCode {
-        // Lines of a code block join into one background, rounded at the
-        // block's top and bottom.
+        // Lines of a code block join into one background: a single line is
+        // rounded, and the lines of a longer block meet edge to edge.
         let x = left + CGFloat(decoration.depth) * indent
         let height = frame.height - (decoration.isLastLine ? styles.blockSpacing : 0)
         let rect = CGRect(x: x, y: point.y, width: left + containerWidth - x, height: height)
         styles.codeBackground.setFill()
-        let radius: CGFloat = 5
-        bezierPath(roundedRect: rect, radius: radius).fill()
-        if !decoration.isFirstLine {
-          bezierPath(
-            roundedRect: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: radius),
-            radius: 0
-          ).fill()
-        }
-        if !decoration.isLastLine {
-          bezierPath(
-            roundedRect: CGRect(
-              x: rect.minX, y: rect.maxY - radius, width: rect.width, height: radius),
-            radius: 0
-          ).fill()
-        }
+        let single = decoration.isFirstLine && decoration.isLastLine
+        bezierPath(roundedRect: rect, radius: single ? 5 : 0).fill()
       }
       styles.secondary.setFill()
       for level in decoration.quoteLevels {
         let x = left + CGFloat(level) * indent + 4
-        // Quote bars run through the block spacing so consecutive blocks join.
+        // Quote bars run through the block spacing so lines and blocks join.
         bezierPath(
-          roundedRect: CGRect(x: x, y: point.y, width: 3, height: frame.height), radius: 1.5
+          roundedRect: CGRect(x: x, y: point.y, width: 3, height: frame.height), radius: 0
         ).fill()
       }
       if let marker = decoration.markerText, let line = textLineFragments.first {
