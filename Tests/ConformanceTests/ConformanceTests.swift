@@ -208,8 +208,8 @@
     }
 
     /// Random sessions on random documents: every step must agree.
-    @Test(arguments: 0..<24) func randomSessions(seed: UInt64) {
-      var generator = SessionGenerator(seed: seed)
+    @Test(arguments: 0..<24) func randomSessions(seed: Int) {
+      var generator = SessionGenerator(seed: UInt64(seed))
       let state = EditorState(document: generator.document(), selection: .caret(0))
       expectConformance(generator.session(length: 40), from: state, plugins: [UppercaseQ()])
     }
@@ -315,9 +315,9 @@
       case 2: return .quote([block(depth: depth + 1), block(depth: depth + 1)])
       case 3:
         return .list(
-          pick([.bullet, .ordered(start: 3)]),
+          pick([ListKind.bullet, .ordered(start: 3)]),
           items: (0..<next(3) + 1).map { _ in
-            ListItem(checked: pick([nil, true, false]), blocks: [block(depth: depth + 1)])
+            ListItem(checked: pick([Bool?.none, true, false]), blocks: [block(depth: depth + 1)])
           })
       default: return .paragraph(inlines())
       }
@@ -333,11 +333,12 @@
       for _ in 0..<length {
         switch next(12) {
         case 0, 1: steps.append(.type(text()))
-        case 2: steps.append(.marked(["k", "か"], committing: pick(["火", nil])))
+        case 2: steps.append(.marked(["k", "か"], committing: pick([String?("火"), nil])))
         case 3: steps.append(.press(.delete, []))
         case 4: steps.append(.press(.forwardDelete, []))
-        case 5: steps.append(.press(.return, pick([[], [.shift]])))
-        case 6: steps.append(.press(pick([.leftArrow, .rightArrow]), pick([[], [.shift]])))
+        case 5: steps.append(.press(.return, pick([KeyModifiers(), .shift])))
+        case 6:
+          steps.append(.press(pick([Key.leftArrow, .rightArrow]), pick([KeyModifiers(), .shift])))
         case 7: steps.append(.paste(.plainText(text() + "\n" + text())))
         case 8:
           let lower = next(lengthEstimate)

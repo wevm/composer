@@ -92,7 +92,7 @@
         var wantedRun = NSRange()
         let have = actual.attributes(at: location, effectiveRange: &actualRun)
         let want = wanted.attributes(at: location, effectiveRange: &wantedRun)
-        if !(have as NSDictionary).isEqual(to: want) {
+        if !(have as NSDictionary).isEqual(want as NSDictionary) {
           return "attributes at \(location): \(have), expected \(want)"
         }
         location = min(NSMaxRange(actualRun), NSMaxRange(wantedRun))
