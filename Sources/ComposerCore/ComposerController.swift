@@ -188,11 +188,13 @@ public final class ComposerController {
   public var document: Document { state.document }
 
   /// The selection. Setting it outside the marked text commits the
-  /// composition, as clicking elsewhere does in a text view.
+  /// composition, as clicking elsewhere does in a text view. It is clamped to
+  /// the document.
   public var selection: Selection {
     get { state.selection }
     set {
       update { state in
+        let newValue = newValue.clamped(to: state.document.length)
         if let marked = state.markedText,
           newValue.range.lowerBound < marked.range.lowerBound
             || newValue.range.upperBound > marked.range.upperBound

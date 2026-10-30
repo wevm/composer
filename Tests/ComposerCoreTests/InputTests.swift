@@ -257,3 +257,38 @@ import Testing
     #expect(changeset.edits == [.init(range: 3..<8, replacementLength: 5)])
   }
 }
+
+@Suite struct CombinedEditTests {
+  /// Random sequential edits on a string: replacing the combined edit's range
+  /// of the original with the same range of the result gives the result.
+  @Test func oneReplacementReproducesSequentialEdits() {
+    var rng = SeededGenerator(seed: 7)
+    for _ in 0..<2_000 {
+      let original = Array(repeating: "o", count: Int.random(in: 0...12, using: &rng))
+      var current = original
+      var edits: [Changeset.Edit] = []
+      for index in 0..<Int.random(in: 1...4, using: &rng) {
+        let lower = Int.random(in: 0...current.count, using: &rng)
+        let upper = Int.random(in: lower...current.count, using: &rng)
+        let length = Int.random(in: 0...3, using: &rng)
+        current.replaceSubrange(
+          lower..<upper, with: Array(repeating: "\(index)", count: length))
+        edits.append(.init(range: Position(lower)..<Position(upper), replacementLength: length))
+      }
+      let changeset = Changeset(edits: edits, selectionBefore: .caret(0), selectionAfter: .caret(0))
+      let combined = changeset.combinedEdit!
+      if edits.count == 1 { #expect(combined == edits[0]) }
+      let lower = combined.range.lowerBound.offset
+      var rebuilt = original
+      rebuilt.replaceSubrange(
+        lower..<combined.range.upperBound.offset,
+        with: current[lower..<lower + combined.replacementLength])
+      #expect(rebuilt == current, "\(edits)")
+      if rebuilt != current { return }
+    }
+  }
+
+  @Test func noEditsIsNil() {
+    #expect(Changeset(selectionBefore: .caret(0), selectionAfter: .caret(1)).combinedEdit == nil)
+  }
+}

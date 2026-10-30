@@ -37,6 +37,28 @@ public struct Changeset: Sendable, Hashable {
 
   /// Whether the update changed neither the document nor the selection.
   public var isEmpty: Bool { edits.isEmpty && selectionBefore == selectionAfter }
+
+  /// One replacement covering every edit, in the coordinates before the
+  /// update, or `nil` if the document didn't change. Its result is the range
+  /// `range.lowerBound ..< range.lowerBound + replacementLength` after the
+  /// update. Engines that rebuild one span of their text storage apply this.
+  public var combinedEdit: Edit? {
+    guard let first = edits.first else { return nil }
+    var lower = first.range.lowerBound.offset
+    // The span's end after the edits so far, and the same point before them.
+    var upper = lower + first.replacementLength
+    var upperBefore = first.range.upperBound.offset
+    for edit in edits.dropFirst() {
+      let (a, b) = (edit.range.lowerBound.offset, edit.range.upperBound.offset)
+      // Everything outside the span is unchanged so far, so below `lower`
+      // and above `upper` the coordinates before the update still hold
+      // (shifted by the span's change in length).
+      lower = Swift.min(lower, a)
+      upperBefore += Swift.max(0, b - upper)
+      upper = Swift.max(upper, b) + edit.replacementLength - (b - a)
+    }
+    return Edit(range: .init(offsets: lower..<upperBefore), replacementLength: upper - lower)
+  }
 }
 
 extension [Changeset.Edit] {
