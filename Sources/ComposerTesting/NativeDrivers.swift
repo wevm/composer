@@ -122,8 +122,9 @@
           ?? from
       }
       if extending {
-        guard let anchor = position(selection.anchor.offset),
-          let head = position(selection.head.offset)
+        let map = textView.storageMap
+        guard let anchor = position(map.storage(selection.anchor.offset)),
+          let head = position(map.storage(selection.head.offset))
         else { return }
         let newHead = moved(head)
         let ordered =
