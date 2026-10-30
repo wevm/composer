@@ -85,6 +85,7 @@ Tests/
   ComposerCoreTests/        Linux and macOS
   ConformanceTests/         Apple-only
   PerformanceTests/         Apple-only
+  ComposerSwiftUITests/     Apple-only
   StyledSnapshotTests/      Apple-only
 Playground/
   project.yml               XcodeGen: iOS and macOS app targets, UI tests
@@ -203,6 +204,7 @@ public struct EditorState: Sendable {   // copy-on-write storage
   public var document: Document
   public var selection: Selection
   public var markedText: MarkedText?    // IME composition in progress
+  public var storedMarks: Marks?        // marks for the next typed text
   public var attachments: [Attachment]
   public var context: (any ComposerContext)?   // reply or edit (see Reply and edit)
   public subscript<State>(key: PluginKey<State>) -> State { get set }   // typed plugin state
@@ -213,6 +215,7 @@ public struct EditorState: Sendable {   // copy-on-write storage
 
 - Plugin state must be `Equatable` (`PluginKey<State: Sendable & Equatable>`), because it takes part in equality. Keys are identified by name. Setting a key to its default is the same as never setting it.
 - `attachments` and `context` arrive with their types in milestone 8.
+- **Stored marks** (decided after milestone 5). Typed text takes the stored marks if there are any, and otherwise the marks of the text before the caret. Toggling a mark with no selection (⌘B and the rest) sets stored marks at the caret, which apply to the characters typed next, until the caret moves or the mark is toggled off again. Typing uses them up, so the characters after keep the mark by following the text before them. An update that moves the selection clears them, unless it set them itself; an IME composition keeps them while its caret moves, and its committed text takes them. When a markdown closing delimiter converts a mark (`**bold**`), the conversion ends the mark there by storing the caret's marks without it, so the next characters are not bold. The markdown plugins do this when they land; the Playground's stand-in already does.
 
 ### Updates
 
@@ -711,6 +714,15 @@ public protocol SuggestionItemStyle {
 }
 ```
 
+Details decided in milestone 6:
+
+- **Observation is narrow by construction.** `ComposerController.state` changes with every keystroke and selection change, so only views that show the text or selection read it, such as `Composer.Footer`, whose content gets the state. The controller also has `isEmpty` and `isFocused`, observed on their own, so `Composer.Placeholder` changes only when the document empties or fills. `Composer.Input` reads nothing observable: the text view applies each changeset itself, and SwiftUI hears from it only when its fitting height changes. `ComposerSwiftUITests` hosts a composer in a window and checks that typing and selection changes re-render the footer and nothing else (not the root, a sibling, the placeholder, or the input's representable).
+- **Height:** both `ComposerTextView`s have `lineLimits` and `fittingHeight`: the text's height clamped to that many lines of the base font, plus the insets, with layout stopping at the upper limit. It is their intrinsic height, cached by width and invalidated only when an edit or a new width changes it. The representables answer `sizeThatFits` with the offered width and that height. While `isExpanded` is true, the input takes all the height it is offered instead. `Composer.Input` doesn't set `isExpanded`; the app does, from its own control or gesture. Sizing settles: once laid out, further layout passes don't size the input again (tested). On iOS, text that fits never scrolls, so the first line doesn't stay hidden after the view grows.
+- **Focus:** `.focused($focus)` on `Composer.Input` works through SwiftUI's first-responder bridging for representables, in both directions, on macOS and the iOS Simulator (tested). The engines also report focus as `ComposerController.isFocused`, for UIKit and AppKit consumers.
+- **Placeholder:** `Composer.Input("Message")` uses the text view's own `placeholder`, drawn at the text's origin and hidden while the document has content. The `Composer.Placeholder` slot is for anything else.
+- **Slots that land now:** `Composer.Root` (the controller in the environment; no layout of its own), `Composer.Input`, `Composer.Placeholder`, `Composer.Footer`, and, on iOS, `.composerKeyboardAccessory { … }`, hosted in a `UIHostingController` as the text view's `inputAccessoryView`. Header, Attachments, Actions, Suggestions, and SelectionToolbar land with the data they show (milestones 7 and 8).
+- **Styles:** `ComposerActionStyle`, `SuggestionItemStyle`, and `AttachmentStyle`, each with its configuration, a default style, an environment value, a modifier, and a view that renders a configuration with the environment's style (`Composer.StyledAction`, …). The views that use them come with their slots. `.composerTextStyle(for:)` comes with `TokenStyle` in milestone 7.
+
 ## Styled: `ComposerStyled`
 
 The reference design covers both SwiftUI and native (UIKit and AppKit) in v1. It is built only from the public styles, which proves that surface is enough. It owns the String Catalog for the labels its design shows (Send, Save, Attach, …). Accessibility labels for nodes are not in it; each plugin's module localizes those (see [Accessibility](#accessibility-and-platform-features)).
@@ -870,6 +882,7 @@ MentionsPlugin(source: users)
 | `ComposerCoreTests`   | Linux, macOS   | Core unit tests, markdown and JSON round trips, `UnknownNode` |
 | `ConformanceTests`    | macOS, iOS sim | scripted sessions against real `NSTextView` and `UITextView`  |
 | `PerformanceTests`    | macOS, iOS sim | the [budgets](#performance), XCTest                           |
+| `ComposerSwiftUITests` | macOS, iOS sim | the SwiftUI binding hosted in a window: invalidation, sizing, focus |
 | `StyledSnapshotTests` | macOS, iOS sim | `ComposerStyled` only, with `swift-snapshot-testing`          |
 
 The Playground hosts the XCTest UI tests that need a running app.
@@ -909,7 +922,7 @@ The workload is chat-sized: usually under 2k characters, with pastes of up to ab
 
 How they are measured (decided in milestone 4): the keystroke budget applies to the median, over 300 characters typed through `insertText` into the middle of a 2k-character mixed document (the 95th percentile gets twice the budget, for scheduling noise on shared CI machines), of the update, transforms, the changeset applied to text storage, and layout of the viewport. "No visible hitch" for a 20k-character paste is taken as a median under 100 ms through viewport layout, the limit for a response to feel immediate; a paste is a one-off event, so one frame (16 ms) is not the bar. Mount is the median time to create a composer, add its text view to a window, and lay out its viewport, after warm-up, for an empty composer and for one restoring a short draft, as a chat screen mounts its input. With a 2k-character document, TextKit's layout dominates: on the CI runners a plain TextKit 2 `NSTextView` showing the same text takes about 11 ms, so that case is checked against that floor rather than against 5 ms: measured interleaved with the plain view, the composer stays within 1.5 times it plus 2 ms (it also maps the document, which the plain view is handed). Shared CI machines vary by about 2× from run to run, so this is a guard against regressions, not a budget. The performance tests run in their own CI step, after the other tests, so parallel tests don't skew them.
 
-On the iOS Simulator (decided in milestone 5), a plain TextKit 2 `UITextView` doing the same work misses some budgets on the shared CI machines: its keystroke p95 is around 14 ms, and an empty mount takes around 3 ms, against 0.4 ms on macOS. So on the simulator each budget applies only where the plain view can meet it; otherwise the composer must stay within 1.5 times the plain view, plus 2 ms, measured interleaved with it in the same run. The budgets are for devices, and the composer has not been measured on one yet.
+On the iOS Simulator (decided in milestone 5, and accepted), a plain TextKit 2 `UITextView` doing the same work misses some budgets on the shared CI machines: its keystroke p95 is around 14 ms, and an empty mount takes around 3 ms, against 0.4 ms on macOS. So on the simulator each budget applies only where the plain view can meet it; otherwise the composer must stay within 1.5 times the plain view, plus 2 ms, measured interleaved with it in the same run. macOS keeps the absolute budgets. The budgets are for devices, and the composer has not been measured on one yet.
 
 ### CI
 
@@ -958,4 +971,4 @@ Explicitly deferred work:
 
 Questions found during implementation go here until they are decided. The decision then moves into the relevant section.
 
-- **Typing after an inline conversion.** Typed text takes the marks of the text before the caret, so after `**bold**` converts, the next characters are bold too. The markdown plugins need a way to end the mark: stored marks for the caret in `EditorState`, or a conversion that waits for the next boundary character. The Playground's stand-in converts on the boundary character (milestone 4).
+None open.
