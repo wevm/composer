@@ -2,9 +2,10 @@ import ComposerCore
 
 /// A minimal undo stack: one group per registration, for driving undo where
 /// `UndoManager` isn't available (Linux) and in reference sessions.
+@MainActor
 public final class UndoStack: UndoRegistrar {
-  private var undos: [@Sendable () -> Void] = []
-  private var redos: [@Sendable () -> Void] = []
+  private var undos: [@MainActor @Sendable () -> Void] = []
+  private var redos: [@MainActor @Sendable () -> Void] = []
   public private(set) var isUndoing = false
   public private(set) var isRedoing = false
 
@@ -13,7 +14,7 @@ public final class UndoStack: UndoRegistrar {
   public var canUndo: Bool { !undos.isEmpty }
   public var canRedo: Bool { !redos.isEmpty }
 
-  public func registerUndoGroup(_ action: @escaping @Sendable () -> Void) {
+  public func registerUndoGroup(_ action: @escaping @MainActor @Sendable () -> Void) {
     if isUndoing {
       redos.append(action)
     } else {

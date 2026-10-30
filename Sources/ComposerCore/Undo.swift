@@ -2,20 +2,21 @@ import Foundation
 
 /// Where Core registers undo. `UndoManager` conforms on Apple platforms;
 /// Linux Foundation has none, so tests use their own (see `ComposerTesting`).
+@MainActor
 public protocol UndoRegistrar: AnyObject {
   var isUndoing: Bool { get }
   var isRedoing: Bool { get }
   /// Registers `action` as one undo group (or, while undoing or redoing, as
   /// the reverse action).
-  func registerUndoGroup(_ action: @escaping @Sendable () -> Void)
+  func registerUndoGroup(_ action: @escaping @MainActor @Sendable () -> Void)
 }
 
 #if canImport(Darwin)
   extension UndoManager: UndoRegistrar {
-    public func registerUndoGroup(_ action: @escaping @Sendable () -> Void) {
+    public func registerUndoGroup(_ action: @escaping @MainActor @Sendable () -> Void) {
       let grouped = !isUndoing && !isRedoing
       if grouped { beginUndoGrouping() }
-      registerUndo(withTarget: self) { _ in action() }
+      registerUndo(withTarget: self) { _ in MainActor.assumeIsolated { action() } }
       if grouped { endUndoGrouping() }
     }
   }
@@ -74,14 +75,12 @@ extension ComposerController {
   /// so undo and redo alternate.
   private func registerUndo(restoring snapshot: EditorState, with undoManager: any UndoRegistrar) {
     undoManager.registerUndoGroup { [weak self] in
-      MainActor.assumeIsolated {
-        guard let self else { return }
-        let current = self.state
-        self.undo = UndoState()
-        self.restore(snapshot)
-        if let undoManager = self.undoManager {
-          self.registerUndo(restoring: current, with: undoManager)
-        }
+      guard let self else { return }
+      let current = self.state
+      self.undo = UndoState()
+      self.restore(snapshot)
+      if let undoManager = self.undoManager {
+        self.registerUndo(restoring: current, with: undoManager)
       }
     }
   }
