@@ -273,8 +273,8 @@
       #expect(driver.textView.storageMap.storage(4) == 7)
     }
 
-    /// HTML, composer's own type, and files paste through the pasteboard
-    /// as through the controller.
+    /// HTML, composer's own type, and files paste through the pasteboard as
+    /// through the controller.
     @Test func richPastesConform() {
       let mention = AtomicNode(type: .mention, label: "tom", attributes: ["id": "1"])
       expectConformance(
@@ -282,12 +282,16 @@
           Paste(
             .html("<p><b>bold</b> and <a href=\"https://x.dev\">link</a></p><ul><li>a</li></ul>"))
           Paste(.document(Document(blocks: [.paragraph([.text("hi "), .node(mention)])])))
-          Paste(.files([PastedFile(data: Data([1]), contentType: "public.png")]))
         },
         plugins: [
           PluginGroup.chatDefaults, RichPaste(), MentionsPlugin(source: .static(people)),
-          AttachmentsPlugin { _, _ in },
         ])
+      // A file goes to the tray. (Not in the session: each side gives the
+      // attachment its own random id.)
+      let driver = NativeDriver(plugins: [AttachmentsPlugin { _, _ in }])
+      driver.perform(.paste(.files([PastedFile(data: Data([1]), contentType: "public.png")])))
+      #expect(driver.controller.attachments.count == 1)
+      #expect(driver.controller.document.isEmpty)
     }
 
     /// Copying writes markdown, RTF, and composer's own type; pasting the
