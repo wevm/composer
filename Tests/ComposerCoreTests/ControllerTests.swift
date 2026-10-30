@@ -1,4 +1,5 @@
 import ComposerCore
+import Observation
 import Synchronization
 import Testing
 
@@ -304,5 +305,34 @@ func plainText(_ document: Document) -> [String] {
     keymap.remove(.toggleStrikethrough)
     keymap.remove("b", modifiers: .command)
     #expect(keymap.bindings.map(\.command.name) == ["send"])
+  }
+}
+
+@MainActor @Suite struct ObservationTests {
+  /// Calls `body`, and returns whether reading `read` was invalidated.
+  func invalidates(_ read: @escaping () -> Void, _ body: () -> Void) -> Bool {
+    let log = Log()
+    withObservationTracking(read) { log.append("changed") }
+    body()
+    return !log.all.isEmpty
+  }
+
+  @Test func isEmptyIsObservedApartFromTheState() {
+    let controller = ComposerController()
+    #expect(controller.isEmpty)
+    // The first character makes the document non-empty.
+    #expect(invalidates({ _ = controller.isEmpty }) { controller.insertText("a") })
+    #expect(!controller.isEmpty)
+    // Further keystrokes and selection changes invalidate the state only.
+    #expect(!invalidates({ _ = controller.isEmpty }) { controller.insertText("b") })
+    #expect(!invalidates({ _ = controller.isEmpty }) { controller.selection = .caret(0) })
+    #expect(invalidates({ _ = controller.state }) { controller.insertText("c") })
+    // A new empty block after text is content too.
+    #expect(!invalidates({ _ = controller.isEmpty }) { controller.handleKeyPress(.return) })
+    #expect(invalidates({ _ = controller.isEmpty }) { controller.clear() })
+    #expect(controller.isEmpty)
+    // An empty list item shows, so it isn't empty.
+    controller.setDocument(Document(blocks: [.list(.bullet, items: [ListItem(blocks: [])])]))
+    #expect(!controller.isEmpty)
   }
 }

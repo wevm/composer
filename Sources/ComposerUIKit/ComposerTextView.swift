@@ -40,6 +40,44 @@
       }
     }
 
+    /// Shown while the document is empty.
+    public var placeholder: String? {
+      get { placeholderLabel.text }
+      set {
+        placeholderLabel.text = newValue
+        syncPlaceholder()
+      }
+    }
+
+    /// The lines the view's intrinsic height grows between: it fits its
+    /// text from the lower bound to the upper, and scrolls beyond.
+    public var lineLimits: ClosedRange<Int> = 1...8 {
+      didSet { textDidChangeHeight() }
+    }
+
+    /// The height that fits the text within `lineLimits`, at the view's
+    /// width, including the text container's insets. The view's intrinsic
+    /// height.
+    public var fittingHeight: CGFloat {
+      if let fitting, fitting.width == bounds.width { return fitting.height }
+      let height =
+        textLayoutManager.map {
+          TextSizing.fittingHeight(
+            of: $0, lineLimits: lineLimits, font: textStyles.base,
+            verticalInsets: textContainerInset.top + textContainerInset.bottom)
+        } ?? 0
+      fitting = (bounds.width, height)
+      return height
+    }
+
+    open override var intrinsicContentSize: CGSize {
+      CGSize(width: UIView.noIntrinsicMetric, height: fittingHeight)
+    }
+
+    /// The last fitting height and the width it was measured at. `nil` until
+    /// something asks, so a view sized another way never measures.
+    private var fitting: (width: CGFloat, height: CGFloat)?
+    private let placeholderLabel = UILabel()
     private var mapper: AttributeMapper
     private var fragmentProvider: LayoutFragmentProvider
     private let contentStorage: NSTextContentStorage
@@ -94,6 +132,15 @@
       backgroundColor = .clear
       textContainerInset = UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
       typingAttributes = [.font: textStyles.base, .foregroundColor: textStyles.foreground]
+      placeholderLabel.isHidden = true
+      placeholderLabel.numberOfLines = 0
+      placeholderLabel.isAccessibilityElement = false
+      stylePlaceholder()
+    }
+
+    private func stylePlaceholder() {
+      placeholderLabel.font = textStyles.base
+      placeholderLabel.textColor = .placeholderText
     }
 
     /// Renders the whole document again, with the controller's selection.
@@ -105,6 +152,48 @@
       renderedMarkedText = nil
       syncMarkedText(controller.state.markedText)
       selectedRange = NSRange(controller.selection.range)
+      textDidChangeHeight()
+      syncPlaceholder()
+    }
+
+    private func syncPlaceholder() {
+      let hidden = placeholderLabel.text == nil || !controller.isEmpty
+      guard placeholderLabel.isHidden != hidden else { return }
+      placeholderLabel.isHidden = hidden
+      if !hidden {
+        if placeholderLabel.superview == nil { addSubview(placeholderLabel) }
+        setNeedsLayout()
+      }
+    }
+
+    /// Measures the fitting height again, if it was measured, and
+    /// invalidates the intrinsic size if it changed.
+    private func textDidChangeHeight() {
+      guard let previous = fitting else { return }
+      fitting = nil
+      if fittingHeight != previous.height { invalidateIntrinsicContentSize() }
+    }
+
+    open override func layoutSubviews() {
+      super.layoutSubviews()
+      if !placeholderLabel.isHidden {
+        let padding = textContainer.lineFragmentPadding
+        let inset = textContainerInset
+        let width = bounds.width - inset.left - inset.right - padding * 2
+        let size = placeholderLabel.sizeThatFits(
+          CGSize(width: width, height: .greatestFiniteMagnitude))
+        placeholderLabel.frame = CGRect(
+          x: inset.left + padding, y: inset.top, width: width, height: size.height)
+      }
+      if let fitting, fitting.width != bounds.width { textDidChangeHeight() }
+      // While the text fits, it doesn't scroll: a caret scrolled into view
+      // before the view grew to fit it would otherwise leave the first line
+      // hidden.
+      if contentSize.height <= bounds.height - adjustedContentInset.top
+        - adjustedContentInset.bottom, contentOffset.y != -adjustedContentInset.top
+      {
+        contentOffset.y = -adjustedContentInset.top
+      }
     }
 
     private func reloadStyles() {
@@ -112,6 +201,7 @@
       fragmentProvider = LayoutFragmentProvider(styles: textStyles)
       textLayoutManager?.delegate = fragmentProvider
       typingAttributes = [.font: textStyles.base, .foregroundColor: textStyles.foreground]
+      stylePlaceholder()
       reload()
     }
 
@@ -135,7 +225,11 @@
         inputDelegate?.textDidChange(self)
         inputDelegate?.selectionDidChange(self)
       }
-      if !changeset.edits.isEmpty { scrollRangeToVisible(range) }
+      if !changeset.edits.isEmpty {
+        syncPlaceholder()
+        textDidChangeHeight()
+        scrollRangeToVisible(range)
+      }
     }
 
     public var selectionRects: [CGRect] {
@@ -170,6 +264,20 @@
         textLayoutManager.addRenderingAttribute(
           .backgroundColor, value: tintColor.withAlphaComponent(0.18), for: range)
       }
+    }
+
+    // MARK: Focus
+
+    open override func becomeFirstResponder() -> Bool {
+      let became = super.becomeFirstResponder()
+      if became, !controller.isFocused { controller.isFocused = true }
+      return became
+    }
+
+    open override func resignFirstResponder() -> Bool {
+      let resigned = super.resignFirstResponder()
+      if resigned, controller.isFocused { controller.isFocused = false }
+      return resigned
     }
 
     // MARK: Text input

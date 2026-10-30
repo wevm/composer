@@ -190,6 +190,74 @@
         "composer \(composer.median), plain \(plain.median)")
     }
 
+    /// Temporary: where the 2k mount's time goes, phase by phase.
+    @MainActor func testMountBreakdown() {
+      let document = MarkdownCodec().parse(Self.chatMarkdown)
+      let text = AttributeMapper(styles: .standard).attributedString(for: document)
+      #if canImport(UIKit)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 320))
+        window.isHidden = false
+        let container: UIView = window
+      #else
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container: NSView = window.contentView!
+      #endif
+      var phases: [String: [Duration]] = [:]
+      func time<T>(_ name: String, _ body: () -> T) -> T {
+        var result: T?
+        phases[name, default: []].append(ContinuousClock().measure { result = body() })
+        return result!
+      }
+      for _ in 0..<30 {
+        let controller = time("composer: controller") {
+          ComposerController(EditorState(document: document))
+        }
+        _ = time("composer: map document") {
+          AttributeMapper(styles: .standard).attributedString(for: document)
+        }
+        _ = time("composer: TextStyles.standard") { TextStyles.standard }
+        let view = time("composer: init view") {
+          ComposerTextView(controller: controller, frame: container.bounds)
+        }
+        time("composer: add and lay out") {
+          container.addSubview(view)
+          layOut(view)
+        }
+        view.removeFromSuperview()
+
+        let plain = time("plain: init view") { PlainTextView(text, frame: container.bounds).view }
+        time("plain: add and lay out") {
+          container.addSubview(plain)
+          layOut(plain)
+        }
+        plain.removeFromSuperview()
+
+        let decorated = time("plain+fragments: init view") {
+          let view = PlainTextView(text, frame: container.bounds).view
+          return view
+        }
+        let provider = LayoutFragmentProvider(styles: .standard)
+        decorated.textLayoutManager?.delegate = provider
+        time("plain+fragments: add and lay out") {
+          container.addSubview(decorated)
+          layOut(decorated)
+        }
+        decorated.removeFromSuperview()
+      }
+      for name in phases.keys.sorted() {
+        let stats = statistics(phases[name]!.dropFirst(5))
+        report("breakdown \(name)", median: stats.median, p95: stats.p95)
+      }
+      #if canImport(UIKit)
+        window.isHidden = true
+      #else
+        window.close()
+      #endif
+    }
+
     // MARK: Helpers
 
     /// The bar a measurement must clear: its budget, except on the iOS

@@ -37,11 +37,14 @@ let package = Package(
     .target(name: "ComposerTesting", dependencies: ["ComposerCore"] + nativeEngines),
     .testTarget(name: "ComposerCoreTests", dependencies: ["ComposerCore", "ComposerTesting"]),
     // Apple-only, and empty elsewhere: the conformance suite against real text
-    // views, the performance budgets, and ComposerStyled's snapshots.
+    // views, the performance budgets, the SwiftUI binding, and ComposerStyled's
+    // snapshots.
     .testTarget(
       name: "ConformanceTests", dependencies: ["ComposerCore", "ComposerTesting"] + nativeEngines),
     .testTarget(
       name: "PerformanceTests", dependencies: ["ComposerCore", "ComposerTesting"] + nativeEngines),
+    .testTarget(
+      name: "ComposerSwiftUITests", dependencies: ["ComposerSwiftUI"] + nativeEngines),
     .testTarget(
       name: "StyledSnapshotTests",
       dependencies: [

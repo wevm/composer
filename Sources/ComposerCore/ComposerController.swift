@@ -6,7 +6,21 @@ import Observation
 @MainActor
 @Observable
 public final class ComposerController {
-  public private(set) var state: EditorState
+  /// The state. Observers of it are invalidated by every keystroke and
+  /// selection change; views that depend on less should observe the narrower
+  /// properties below, such as `isEmpty`.
+  public private(set) var state: EditorState {
+    didSet {
+      let isEmpty = state.document.isEmpty
+      if isEmpty != self.isEmpty { self.isEmpty = isEmpty }
+    }
+  }
+  /// Whether the document is empty (see `Document.isEmpty`). Observed on its
+  /// own, so a placeholder is invalidated only when it appears or goes.
+  public private(set) var isEmpty: Bool
+  /// Whether the composer's text view has focus. The engine sets it as its
+  /// view becomes and resigns first responder.
+  public var isFocused = false
   public var keymap: Keymap
   @ObservationIgnored public let schema: Schema
   @ObservationIgnored public let transforms: [NodeTransform]
@@ -37,6 +51,7 @@ public final class ComposerController {
     var registry = PluginRegistry()
     registry.install(plugins)
     self.state = state
+    self.isEmpty = state.document.isEmpty
     self.schema = registry.schema
     self.transforms = registry.transforms
     self.keymap = Keymap(registry.keyBindings)

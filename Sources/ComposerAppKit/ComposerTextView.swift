@@ -27,6 +27,46 @@
       didSet { controller.undoManager = undoManager }
     }
 
+    /// Shown while the document is empty.
+    public var placeholder: String? {
+      didSet { syncPlaceholder(force: true) }
+    }
+
+    /// The lines the view's intrinsic height grows between: it fits its
+    /// text from the lower bound to the upper. In a scroll view, the scroll
+    /// view's intrinsic height follows it, and the text scrolls beyond.
+    public var lineLimits: ClosedRange<Int> = 1...12 {
+      didSet { textDidChangeHeight() }
+    }
+
+    /// The height that fits the text within `lineLimits`, at the view's
+    /// width, including the text container's insets.
+    public var fittingHeight: CGFloat {
+      if let fitting, fitting.width == frame.width { return fitting.height }
+      let height =
+        textLayoutManager.map {
+          TextSizing.fittingHeight(
+            of: $0, lineLimits: lineLimits, font: textStyles.base,
+            verticalInsets: textContainerInset.height * 2)
+        } ?? 0
+      fitting = (frame.width, height)
+      return height
+    }
+
+    open override var intrinsicContentSize: NSSize {
+      NSSize(width: NSView.noIntrinsicMetric, height: fittingHeight)
+    }
+
+    /// The last fitting height and the width it was measured at. `nil` until
+    /// something asks, so a view sized another way never measures.
+    private var fitting: (width: CGFloat, height: CGFloat)?
+    private let placeholderLabel: NSTextField = {
+      let label = NSTextField(wrappingLabelWithString: "")
+      label.textColor = .placeholderTextColor
+      label.isHidden = true
+      label.setAccessibilityElement(false)
+      return label
+    }()
     private var mapper: AttributeMapper
     private var fragmentProvider: LayoutFragmentProvider
     private let contentStorage: NSTextContentStorage
@@ -97,6 +137,51 @@
       renderedMarkedText = nil
       syncMarkedText(controller.state.markedText)
       setSelectedRange(NSRange(controller.selection.range))
+      textDidChangeHeight()
+      syncPlaceholder(force: true)
+    }
+
+    private func syncPlaceholder(force: Bool = false) {
+      let hidden = placeholder == nil || !controller.isEmpty
+      guard force || placeholderLabel.isHidden != hidden else { return }
+      placeholderLabel.stringValue = placeholder ?? ""
+      placeholderLabel.font = textStyles.base
+      placeholderLabel.isHidden = hidden
+      if !hidden {
+        if placeholderLabel.superview == nil { addSubview(placeholderLabel) }
+        layOutPlaceholder()
+      }
+    }
+
+    private func layOutPlaceholder() {
+      guard !placeholderLabel.isHidden, let textContainer else { return }
+      let origin = textContainerOrigin
+      let padding = textContainer.lineFragmentPadding
+      let width = max(bounds.width - origin.x * 2 - padding * 2, 0)
+      let height =
+        placeholderLabel.cell?.cellSize(
+          forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
+        ).height ?? 0
+      placeholderLabel.frame = NSRect(
+        x: origin.x + padding, y: origin.y, width: width, height: height)
+    }
+
+    /// Measures the fitting height again, if it was measured, and
+    /// invalidates the intrinsic size, and the enclosing scroll view's, if
+    /// it changed.
+    private func textDidChangeHeight() {
+      guard let previous = fitting else { return }
+      fitting = nil
+      if fittingHeight != previous.height {
+        invalidateIntrinsicContentSize()
+        enclosingScrollView?.invalidateIntrinsicContentSize()
+      }
+    }
+
+    open override func setFrameSize(_ newSize: NSSize) {
+      super.setFrameSize(newSize)
+      layOutPlaceholder()
+      if let fitting, fitting.width != newSize.width { textDidChangeHeight() }
     }
 
     private func reloadStyles() {
@@ -117,7 +202,11 @@
       syncMarkedText(state.markedText)
       let range = NSRange(state.selection.range)
       if selectedRange() != range { setSelectedRange(range) }
-      if !changeset.edits.isEmpty { scrollRangeToVisible(range) }
+      if !changeset.edits.isEmpty {
+        syncPlaceholder()
+        textDidChangeHeight()
+        scrollRangeToVisible(range)
+      }
       inputContext?.invalidateCharacterCoordinates()
     }
 
@@ -150,6 +239,20 @@
         textLayoutManager.addRenderingAttribute(
           .underlineStyle, value: NSUnderlineStyle.single.rawValue, for: range)
       }
+    }
+
+    // MARK: Focus
+
+    open override func becomeFirstResponder() -> Bool {
+      let became = super.becomeFirstResponder()
+      if became, !controller.isFocused { controller.isFocused = true }
+      return became
+    }
+
+    open override func resignFirstResponder() -> Bool {
+      let resigned = super.resignFirstResponder()
+      if resigned, controller.isFocused { controller.isFocused = false }
+      return resigned
     }
 
     // MARK: Text input

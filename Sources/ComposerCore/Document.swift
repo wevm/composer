@@ -12,6 +12,16 @@ public struct Document: Sendable, Hashable {
 
   /// A document with a single empty paragraph, where a caret can sit.
   public static var empty: Document { Document(blocks: [.paragraph([])]) }
+
+  /// Whether the document has no content: no blocks, or one empty
+  /// paragraph. An empty list item or code block is content, since it shows.
+  public var isEmpty: Bool {
+    switch blocks.count {
+    case 0: true
+    case 1: blocks[0] == .paragraph([]) || blocks[0] == .paragraph([.text("", marks: Marks())])
+    default: false
+    }
+  }
 }
 
 public enum Block: Sendable, Hashable {
