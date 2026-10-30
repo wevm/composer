@@ -27,7 +27,7 @@
     /// Whether the action is being pressed.
     public let isPressed: Bool
 
-    public init(label: some View, isEnabled: Bool, isPressed: Bool) {
+    @MainActor public init(label: some View, isEnabled: Bool, isPressed: Bool) {
       self.label = Label(content: AnyView(label))
       self.isEnabled = isEnabled
       self.isPressed = isPressed
@@ -67,7 +67,7 @@
     /// Whether the row is the one Return would pick.
     public let isHighlighted: Bool
 
-    public init(label: some View, isHighlighted: Bool) {
+    @MainActor public init(label: some View, isHighlighted: Bool) {
       self.label = Label(content: AnyView(label))
       self.isHighlighted = isHighlighted
     }
@@ -112,7 +112,7 @@
     public let progress: Double?
     public let isFailed: Bool
 
-    public init(label: some View, progress: Double?, isFailed: Bool) {
+    @MainActor public init(label: some View, progress: Double?, isFailed: Bool) {
       self.label = Label(content: AnyView(label))
       self.progress = progress
       self.isFailed = isFailed
