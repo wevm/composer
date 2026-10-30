@@ -461,6 +461,41 @@
       }
     #endif
 
+    #if canImport(AppKit) && !canImport(UIKit)
+      /// The placeholder draws exactly where typed text would, so the caret
+      /// sits before it, and clicks on it reach the text view.
+      @Test func thePlaceholderDrawsAsTextWouldAndTakesNoClicks() {
+        let window = NSWindow(
+          contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.titled],
+          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let empty = ComposerTextView(
+          controller: ComposerController(), frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        empty.placeholder = "Message"
+        let typed = ComposerTextView(
+          controller: ComposerController(), frame: NSRect(x: 0, y: 30, width: 300, height: 30))
+        typed.insertText("Message", replacementRange: NSRange(location: NSNotFound, length: 0))
+        window.contentView?.addSubview(empty)
+        window.contentView?.addSubview(typed)
+        /// The bounds of the drawn pixels, in pixels.
+        func ink(_ view: NSView) -> [Int] {
+          guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return [] }
+          view.cacheDisplay(in: view.bounds, to: rep)
+          var bounds = [Int.max, Int.max, -1, -1]
+          for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.3 {
+              bounds = [min(bounds[0], x), min(bounds[1], y), max(bounds[2], x), max(bounds[3], y)]
+            }
+          }
+          return bounds
+        }
+        #expect(ink(empty) == ink(typed))
+        let point = empty.convert(NSPoint(x: 20, y: 15), to: empty.superview)
+        #expect(empty.hitTest(point) === empty)
+      }
+    #endif
+
     @Test func theTextViewAppliesOnlyTheEditedSpan() throws {
       // "one" 0..<3, the separator, "two" 4..<7, and the caret at the end.
       let driver = NativeDriver(EditorState(document: MarkdownCodec().parse("one\n\ntwo")))

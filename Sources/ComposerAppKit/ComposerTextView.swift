@@ -65,13 +65,9 @@
     /// The last fitting height and the width it was measured at. `nil` until
     /// something asks, so a view sized another way never measures.
     private var fitting: (width: CGFloat, height: CGFloat)?
-    private let placeholderLabel: NSTextField = {
-      let label = NSTextField(wrappingLabelWithString: "")
-      label.textColor = .placeholderTextColor
-      label.isHidden = true
-      label.setAccessibilityElement(false)
-      return label
-    }()
+    /// Whether the placeholder shows: drawn by the view, not a subview, so
+    /// it can't be clicked or selected.
+    private var showsPlaceholder = false
     private var mapper: AttributeMapper
     /// Document positions to storage offsets: tokens draw as several
     /// characters.
@@ -151,28 +147,32 @@
     }
 
     private func syncPlaceholder(force: Bool = false) {
-      let hidden = placeholder == nil || !controller.isEmpty
-      guard force || placeholderLabel.isHidden != hidden else { return }
-      placeholderLabel.stringValue = placeholder ?? ""
-      placeholderLabel.font = textStyles.base
-      placeholderLabel.isHidden = hidden
-      if !hidden {
-        if placeholderLabel.superview == nil { addSubview(placeholderLabel) }
-        layOutPlaceholder()
-      }
+      let shows = placeholder != nil && controller.isEmpty
+      guard force || shows != showsPlaceholder else { return }
+      showsPlaceholder = shows
+      needsDisplay = true
     }
 
-    private func layOutPlaceholder() {
-      guard !placeholderLabel.isHidden, let textContainer else { return }
+    /// Draws the placeholder where the first line's text starts, so the
+    /// caret sits just before it.
+    open override func draw(_ dirtyRect: NSRect) {
+      super.draw(dirtyRect)
+      guard showsPlaceholder, let placeholder, let textContainer else { return }
       let origin = textContainerOrigin
       let padding = textContainer.lineFragmentPadding
-      let width = max(bounds.width - origin.x * 2 - padding * 2, 0)
-      let height =
-        placeholderLabel.cell?.cellSize(
-          forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
-        ).height ?? 0
-      placeholderLabel.frame = NSRect(
-        x: origin.x + padding, y: origin.y, width: width, height: height)
+      let rect = NSRect(
+        x: origin.x + padding, y: origin.y,
+        width: max(bounds.width - origin.x * 2 - padding * 2, 0),
+        height: max(bounds.height - origin.y * 2, 0))
+      let style = NSMutableParagraphStyle()
+      style.lineBreakMode = .byTruncatingTail
+      NSAttributedString(
+        string: placeholder,
+        attributes: [
+          .font: textStyles.base, .foregroundColor: NSColor.placeholderTextColor,
+          .paragraphStyle: style,
+        ]
+      ).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     /// Measures the fitting height again, if it was measured, and
@@ -189,7 +189,6 @@
 
     open override func setFrameSize(_ newSize: NSSize) {
       super.setFrameSize(newSize)
-      layOutPlaceholder()
       if let fitting, fitting.width != newSize.width { textDidChangeHeight() }
     }
 
