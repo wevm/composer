@@ -87,6 +87,15 @@
       #endif
     }
 
+    /// Types through the text input method the keyboard calls.
+    func type(_ text: String) {
+      #if canImport(UIKit)
+        textView.insertText(text)
+      #else
+        textView.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+      #endif
+    }
+
     var isTextViewFocused: Bool {
       #if canImport(UIKit)
         textView.isFirstResponder
@@ -140,7 +149,7 @@
       #expect(textView.controller === controller)
       // The first character hides the placeholder.
       let placeholderBefore = RenderCounts.placeholderBodies
-      textView.insertText("a")
+      host.type("a")
       host.settle()
       #expect(RenderCounts.placeholderBodies > placeholderBefore)
 
@@ -150,7 +159,7 @@
       let placeholder = RenderCounts.placeholderBodies
       let inputUpdates = RenderCounts.inputUpdates
       for character in "bcdef" {
-        textView.insertText(String(character))
+        host.type(String(character))
         host.settle()
       }
       controller.selection = .caret(2)
@@ -219,7 +228,8 @@
       // Back to one line, it shrinks.
       controller.clear()
       host.settle()
-      #expect(abs(host.inputHeight - one) < 1)
+      // Heights round up to whole points.
+      #expect(abs(host.inputHeight - one) <= 1)
     }
 
     @Test func anExpandedInputTakesTheOfferedHeight() {
