@@ -128,5 +128,48 @@
       #endif
       #expect(!view.textView.isHidden)
     }
+
+    /// The native view with the suggestions list open and the tray holding a
+    /// ready, an uploading, and a failed attachment.
+    @Test func nativeSuggestionsAndTray() {
+      struct Failure: Error {}
+      let people = [
+        Suggestion(id: "u1", label: "tom", subtitle: "Tom Hill"),
+        Suggestion(id: "u2", label: "tony", subtitle: "Tony Park"),
+      ]
+      let controller = ComposerController {
+        SendAction { _ in }.placement(.trailing)
+        AttachmentsPlugin { _, _ in }
+        AttachmentPicker { _ in }
+        MentionsPlugin(source: .static(people))
+      }
+      controller.addAttachments([
+        Attachment(id: .init("a"), payload: 0, name: "photo.png", status: .ready),
+        Attachment(
+          id: .init("b"), payload: 0, name: "notes.pdf", status: .uploading(progress: 0.5)),
+        Attachment(id: .init("c"), payload: 0, name: "big.mov", status: .failed(Failure())),
+      ])
+      for character in "hi @to" { controller.insertText(String(character)) }
+      #expect(controller.suggestions.items.count == 2)
+      #if canImport(UIKit)
+        let view = StyledComposerView(controller: controller)
+        view.frame = CGRect(x: 0, y: 0, width: 360, height: 220)
+        view.backgroundColor = .systemBackground
+        view.overrideUserInterfaceStyle = .light
+        view.layoutIfNeeded()
+      #else
+        let view = StyledComposerView(controller: controller)
+        view.frame = NSRect(x: 0, y: 0, width: 360, height: 220)
+        view.appearance = NSAppearance(named: .aqua)
+        view.layoutSubtreeIfNeeded()
+      #endif
+      assertSnapshot(
+        of: view, as: .image(precision: 0.98, perceptualPrecision: 0.98),
+        named: "\(platform)-native-suggestions-tray")
+      // Committing from the list closes it and inserts the mention.
+      controller.suggestions.commit(1)
+      #expect(controller.suggestions.items.isEmpty)
+      #expect(controller.markdown.contains(":mention[tony]"))
+    }
   }
 #endif

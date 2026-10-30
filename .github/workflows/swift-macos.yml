@@ -28,6 +28,9 @@ jobs:
       - run: swift --version
       - name: Build and test (macOS)
         run: swift test --skip PerformanceTests
+        env:
+          # Images of mismatched snapshots, uploaded with new references.
+          SNAPSHOT_ARTIFACTS: ${{ github.workspace }}/Tests/StyledSnapshotTests/__Snapshots__/failures
       # New snapshot references, recorded where none exist, to review and
       # commit.
       - name: Upload recorded snapshots
@@ -50,6 +53,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Test (iOS Simulator)
+        env:
+          TEST_RUNNER_SNAPSHOT_ARTIFACTS: ${{ github.workspace }}/Tests/StyledSnapshotTests/__Snapshots__/failures
         run: |
           device="$(xcrun simctl list devices available -j |
             python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')"

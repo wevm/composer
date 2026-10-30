@@ -15,6 +15,14 @@
     private let banner = UILabel()
     private let cancel = UIButton(type: .system)
     private let bannerRow = UIStackView()
+    /// The suggestions list, above the banner, while a list is open.
+    private let suggestionsList = UIStackView()
+    private let suggestionsPanel = UIView()
+    /// The attachments tray, above the input, while it has attachments.
+    private let tray = UIStackView()
+    private let trayScroll = UIScrollView()
+    private var shownSession: SuggestionSession?
+    private var shownAttachments: [Attachment]?
     private let leading = UIStackView()
     private let trailing = UIStackView()
     private var buttons: [ComposerAction.ID: UIButton] = [:]
@@ -69,7 +77,33 @@
       row.axis = .horizontal
       row.spacing = 8
       row.alignment = .bottom
-      let column = UIStackView(arrangedSubviews: [bannerRow, row])
+      suggestionsList.axis = .vertical
+      suggestionsList.spacing = 2
+      suggestionsList.translatesAutoresizingMaskIntoConstraints = false
+      suggestionsPanel.backgroundColor = .secondarySystemBackground
+      suggestionsPanel.layer.cornerRadius = 12
+      suggestionsPanel.addSubview(suggestionsList)
+      tray.axis = .horizontal
+      tray.spacing = 8
+      tray.translatesAutoresizingMaskIntoConstraints = false
+      trayScroll.showsHorizontalScrollIndicator = false
+      trayScroll.addSubview(tray)
+      NSLayoutConstraint.activate([
+        suggestionsList.leadingAnchor.constraint(
+          equalTo: suggestionsPanel.leadingAnchor, constant: 4),
+        suggestionsList.trailingAnchor.constraint(
+          equalTo: suggestionsPanel.trailingAnchor, constant: -4),
+        suggestionsList.topAnchor.constraint(equalTo: suggestionsPanel.topAnchor, constant: 4),
+        suggestionsList.bottomAnchor.constraint(
+          equalTo: suggestionsPanel.bottomAnchor, constant: -4),
+        tray.leadingAnchor.constraint(equalTo: trayScroll.contentLayoutGuide.leadingAnchor),
+        tray.trailingAnchor.constraint(equalTo: trayScroll.contentLayoutGuide.trailingAnchor),
+        tray.topAnchor.constraint(equalTo: trayScroll.contentLayoutGuide.topAnchor),
+        tray.bottomAnchor.constraint(equalTo: trayScroll.contentLayoutGuide.bottomAnchor),
+        tray.heightAnchor.constraint(equalTo: trayScroll.frameLayoutGuide.heightAnchor),
+        trayScroll.heightAnchor.constraint(equalToConstant: 32),
+      ])
+      let column = UIStackView(arrangedSubviews: [suggestionsPanel, bannerRow, trayScroll, row])
       column.axis = .vertical
       column.spacing = 6
       column.translatesAutoresizingMaskIntoConstraints = false
@@ -112,6 +146,16 @@
     }
 
     private func refresh() {
+      let session = controller.suggestionSession
+      if session != shownSession {
+        shownSession = session
+        rebuildSuggestions()
+      }
+      let attachments = controller.attachments
+      if attachments != shownAttachments {
+        shownAttachments = attachments
+        rebuildTray(attachments)
+      }
       let context = controller.context
       bannerRow.isHidden = context == nil
       if let context {
@@ -125,6 +169,90 @@
           button.accessibilityLabel = String(localized: controller.label(of: action))
         }
       }
+    }
+
+    // MARK: Suggestions and tray
+
+    private func rebuildSuggestions() {
+      for view in suggestionsList.arrangedSubviews { view.removeFromSuperview() }
+      let suggestions = controller.suggestions
+      let items = suggestions.items
+      suggestionsPanel.isHidden = items.isEmpty
+      for (index, item) in items.enumerated() {
+        let isHighlighted = index == suggestions.highlightedIndex
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = item.label
+        configuration.subtitle = item.subtitle
+        configuration.titleAlignment = .leading
+        configuration.baseForegroundColor = isHighlighted ? .white : .label
+        configuration.background.backgroundColor = isHighlighted ? tintColor : .clear
+        configuration.background.cornerRadius = 8
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+          top: 6, leading: 10, bottom: 6, trailing: 10)
+        let row = UIButton(configuration: configuration)
+        row.contentHorizontalAlignment = .leading
+        if isHighlighted { row.accessibilityTraits.insert(.selected) }
+        row.addAction(
+          UIAction { [weak self] _ in self?.controller.suggestions.commit(index) },
+          for: .primaryActionTriggered)
+        suggestionsList.addArrangedSubview(row)
+      }
+    }
+
+    private func rebuildTray(_ attachments: [Attachment]) {
+      for view in tray.arrangedSubviews { view.removeFromSuperview() }
+      trayScroll.isHidden = attachments.isEmpty
+      for attachment in attachments { tray.addArrangedSubview(chip(for: attachment)) }
+    }
+
+    /// An attachment as a rounded chip: an icon, its name, its upload
+    /// progress, and a remove button; red-bordered when its upload failed.
+    private func chip(for attachment: Attachment) -> UIView {
+      let chip = UIStackView()
+      chip.axis = .horizontal
+      chip.spacing = 4
+      chip.alignment = .center
+      chip.isLayoutMarginsRelativeArrangement = true
+      chip.directionalLayoutMargins = NSDirectionalEdgeInsets(
+        top: 4, leading: 8, bottom: 4, trailing: 6)
+      chip.backgroundColor = .tertiarySystemFill
+      chip.layer.cornerRadius = 10
+      var isFailed = false
+      if case .failed = attachment.status { isFailed = true }
+      if isFailed {
+        chip.layer.borderWidth = 1
+        chip.layer.borderColor = UIColor.systemRed.cgColor
+      }
+      let icon = UIImageView(
+        image: UIImage(systemName: isFailed ? "exclamationmark.triangle" : "doc"))
+      icon.tintColor = isFailed ? .systemRed : .secondaryLabel
+      let name = UILabel()
+      name.text = attachment.name ?? "Attachment"
+      name.font = .preferredFont(forTextStyle: .caption1)
+      chip.addArrangedSubview(icon)
+      chip.addArrangedSubview(name)
+      let progress: Double? =
+        switch attachment.status {
+        case .pending: 0
+        case .uploading(let progress): progress
+        case .failed, .ready: nil
+        }
+      if let progress {
+        let bar = UIProgressView(progressViewStyle: .bar)
+        bar.progress = Float(progress)
+        bar.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        chip.addArrangedSubview(bar)
+      }
+      let remove = UIButton(type: .system)
+      remove.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+      remove.tintColor = .secondaryLabel
+      remove.accessibilityLabel = String(localized: styledText("Remove"))
+      let id = attachment.id
+      remove.addAction(
+        UIAction { [weak self] _ in self?.controller.removeAttachment(id) },
+        for: .primaryActionTriggered)
+      chip.addArrangedSubview(remove)
+      return chip
     }
   }
 #elseif canImport(AppKit)
@@ -142,6 +270,12 @@
     private let scrollView = FittingScrollView()
     private let banner = NSTextField(labelWithString: "")
     private let bannerRow = NSStackView()
+    /// The suggestions list, above the banner, while a list is open.
+    private let suggestionsList = NSStackView()
+    /// The attachments tray, above the input, while it has attachments.
+    private let tray = NSStackView()
+    private var shownSession: SuggestionSession?
+    private var shownAttachments: [Attachment]?
     private var buttons: [ComposerAction.ID: NSButton] = [:]
 
     public init(
@@ -208,7 +342,18 @@
       for action in controller.actions where action.placement.current == .trailing {
         row.addArrangedSubview(makeButton(for: action))
       }
-      let column = NSStackView(views: [bannerRow, row])
+      suggestionsList.orientation = .vertical
+      suggestionsList.alignment = .leading
+      suggestionsList.spacing = 2
+      suggestionsList.edgeInsets = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+      suggestionsList.wantsLayer = true
+      suggestionsList.layer?.cornerRadius = 10
+      suggestionsList.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+      suggestionsList.layer?.borderWidth = 1
+      suggestionsList.layer?.borderColor = NSColor.separatorColor.cgColor
+      tray.orientation = .horizontal
+      tray.spacing = 8
+      let column = NSStackView(views: [suggestionsList, bannerRow, tray, row])
       column.orientation = .vertical
       column.alignment = .leading
       column.spacing = 6
@@ -221,6 +366,7 @@
         column.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         row.widthAnchor.constraint(equalTo: column.widthAnchor),
         bannerRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+        suggestionsList.widthAnchor.constraint(equalTo: column.widthAnchor),
       ])
     }
 
@@ -258,6 +404,16 @@
     }
 
     private func refresh() {
+      let session = controller.suggestionSession
+      if session != shownSession {
+        shownSession = session
+        rebuildSuggestions()
+      }
+      let attachments = controller.attachments
+      if attachments != shownAttachments {
+        shownAttachments = attachments
+        rebuildTray(attachments)
+      }
       let context = controller.context
       bannerRow.isHidden = context == nil
       if let context {
@@ -276,6 +432,126 @@
     /// A button that knows its action.
     final class ActionButton: NSButton {
       var actionID: ComposerAction.ID?
+    }
+
+    // MARK: Suggestions and tray
+
+    private func rebuildSuggestions() {
+      for view in suggestionsList.arrangedSubviews { view.removeFromSuperview() }
+      let suggestions = controller.suggestions
+      let items = suggestions.items
+      suggestionsList.isHidden = items.isEmpty
+      for (index, item) in items.enumerated() {
+        let isHighlighted = index == suggestions.highlightedIndex
+        let title = NSMutableAttributedString(
+          string: item.label,
+          attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: isHighlighted ? NSColor.white : NSColor.labelColor,
+          ])
+        if let subtitle = item.subtitle {
+          title.append(
+            NSAttributedString(
+              string: "  " + subtitle,
+              attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: isHighlighted
+                  ? NSColor.white.withAlphaComponent(0.8) : NSColor.secondaryLabelColor,
+              ]))
+        }
+        let row = IndexButton(title: "", target: self, action: #selector(commitSuggestion(_:)))
+        row.index = index
+        row.attributedTitle = title
+        row.isBordered = false
+        row.alignment = .left
+        row.wantsLayer = true
+        row.layer?.cornerRadius = 6
+        row.layer?.backgroundColor =
+          isHighlighted ? NSColor.controlAccentColor.cgColor : NSColor.clear.cgColor
+        row.translatesAutoresizingMaskIntoConstraints = false
+        suggestionsList.addArrangedSubview(row)
+        NSLayoutConstraint.activate([
+          row.heightAnchor.constraint(equalToConstant: 24),
+          row.widthAnchor.constraint(equalTo: suggestionsList.widthAnchor, constant: -8),
+        ])
+      }
+    }
+
+    @objc private func commitSuggestion(_ sender: IndexButton) {
+      controller.suggestions.commit(sender.index)
+    }
+
+    private func rebuildTray(_ attachments: [Attachment]) {
+      for view in tray.arrangedSubviews { view.removeFromSuperview() }
+      tray.isHidden = attachments.isEmpty
+      for attachment in attachments { tray.addArrangedSubview(chip(for: attachment)) }
+    }
+
+    /// An attachment as a rounded chip: an icon, its name, its upload
+    /// progress, and a remove button; red-bordered when its upload failed.
+    private func chip(for attachment: Attachment) -> NSView {
+      var isFailed = false
+      if case .failed = attachment.status { isFailed = true }
+      let icon = NSImageView(
+        image: NSImage(
+          systemSymbolName: isFailed ? "exclamationmark.triangle" : "doc",
+          accessibilityDescription: nil)!)
+      icon.contentTintColor = isFailed ? .systemRed : .secondaryLabelColor
+      let name = NSTextField(labelWithString: attachment.name ?? "Attachment")
+      name.font = .systemFont(ofSize: 11)
+      let chip = NSStackView(views: [icon, name])
+      chip.orientation = .horizontal
+      chip.spacing = 4
+      chip.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 6)
+      chip.wantsLayer = true
+      chip.layer?.cornerRadius = 10
+      chip.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+      if isFailed {
+        chip.layer?.borderWidth = 1
+        chip.layer?.borderColor = NSColor.systemRed.cgColor
+      }
+      let progress: Double? =
+        switch attachment.status {
+        case .pending: 0
+        case .uploading(let progress): progress
+        case .failed, .ready: nil
+        }
+      if let progress {
+        let bar = NSProgressIndicator()
+        bar.style = .bar
+        bar.isIndeterminate = false
+        bar.controlSize = .small
+        bar.minValue = 0
+        bar.maxValue = 1
+        bar.doubleValue = progress
+        bar.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        chip.addArrangedSubview(bar)
+      }
+      let remove = AttachmentButton(
+        image: NSImage(
+          systemSymbolName: "xmark.circle.fill",
+          accessibilityDescription: String(localized: styledText("Remove")))!,
+        target: self, action: #selector(removeAttachment(_:)))
+      remove.attachmentID = attachment.id
+      remove.isBordered = false
+      remove.contentTintColor = .secondaryLabelColor
+      chip.addArrangedSubview(remove)
+      return chip
+    }
+
+    @objc private func removeAttachment(_ sender: AttachmentButton) {
+      guard let id = sender.attachmentID else { return }
+      controller.removeAttachment(id)
+    }
+
+    /// A suggestion row that knows its index.
+    final class IndexButton: NSButton {
+      var index = 0
+    }
+
+    /// A remove button that knows its attachment.
+    final class AttachmentButton: NSButton {
+      var attachmentID: Attachment.ID?
     }
 
     /// A scroll view whose intrinsic height is its text view's fitting
