@@ -235,11 +235,12 @@
         }, plugins: [PluginGroup.markdown])
     }
 
-    /// Random typing over markdown syntax, with ⇥ and ⇧⇥.
-    @Test(arguments: 0..<12) func randomMarkdownSessions(seed: Int) {
+    /// Random typing over markdown syntax, with ⇥, ⇧⇥, ⌘B, ⌘I, ⌘E,
+    /// selections, pastes, compositions, undo, and redo.
+    @Test(arguments: 0..<64) func randomMarkdownSessions(seed: Int) {
       var generator = SessionGenerator(seed: UInt64(seed) &+ 1_000)
       expectConformance(
-        generator.markdownSession(length: 60), plugins: [PluginGroup.markdown])
+        generator.markdownSession(length: 100), plugins: [PluginGroup.markdown])
     }
 
     /// Tokens draw as their labels, several characters for one unit: the
@@ -655,12 +656,20 @@
     mutating func markdownSession(length: Int) -> Session {
       var steps: [Step] = []
       for _ in 0..<length {
-        switch next(14) {
+        switch next(20) {
         case 0: steps.append(.press(.tab, pick([KeyModifiers(), .shift])))
         case 1: steps.append(.press(.delete, []))
-        case 2: steps.append(.press(.return, []))
-        case 3: steps.append(.press(pick([Key.leftArrow, .rightArrow]), []))
+        case 2: steps.append(.press(.return, pick([KeyModifiers(), .shift])))
+        case 3:
+          steps.append(.press(pick([Key.leftArrow, .rightArrow]), pick([KeyModifiers(), .shift])))
         case 4: steps.append(.undo)
+        case 5: steps.append(.redo)
+        case 6: steps.append(.press(pick(["b", "i", "e"]), .command))
+        case 7:
+          let lower = next(30)
+          steps.append(.select(Position(lower)..<Position(lower + next(6))))
+        case 8: steps.append(.paste(.plainText(pick(["**p** q", "`c`", "- l\n- m", "x\ny"]))))
+        case 9: steps.append(.marked(["k", "か"], committing: pick([String?("火"), "**"])))
         default:
           steps.append(
             .type(
