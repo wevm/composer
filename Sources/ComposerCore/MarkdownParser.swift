@@ -425,6 +425,28 @@ struct BlockParser {
   }
 }
 
+/// A span the inline parser found, with the source ranges of its opening and
+/// closing syntax; its content is between them. Typing converts with these
+/// (see `MarkdownSupport.renderInline`).
+struct InlineConversion: Sendable, Hashable {
+  enum Kind: Sendable, Hashable {
+    case mark(MarkKind)
+    case link(String)
+  }
+
+  var kind: Kind
+  var open: Range<Int>
+  var close: Range<Int>
+
+  init(_ kind: Kind, open: Range<Int>, close: Range<Int>) {
+    self.kind = kind
+    self.open = open
+    self.close = close
+  }
+
+  var content: Range<Int> { open.upperBound..<close.lowerBound }
+}
+
 /// The inline parser: CommonMark's delimiter algorithm for `*`, `_`, and `~`,
 /// with code spans, links, autolinks, escapes, character references, and
 /// node codecs.
@@ -442,6 +464,10 @@ struct InlineParser {
 
   private struct Delimiter {
     let item: Int
+    /// The run's first scalar in the source, and how many of its first
+    /// scalars closing used.
+    let start: Int
+    var closed = 0
     let character: Unicode.Scalar
     var count: Int
     let originalCount: Int
@@ -453,6 +479,8 @@ struct InlineParser {
 
   private struct Bracket {
     let item: Int
+    /// The `[` in the source.
+    let start: Int
     let isImage: Bool
     var isActive = true
     /// The top of the delimiter stack when the bracket opened.
@@ -471,6 +499,9 @@ struct InlineParser {
   private var top = -1
   private var brackets: [Bracket] = []
   private var spans: [(range: Range<Int>, kind: SpanKind)] = []
+  /// Each span with the source ranges of its delimiters, in the order the
+  /// spans close.
+  private(set) var conversions: [InlineConversion] = []
   private let triggers: [Unicode.Scalar: [NodeType]]
 
   init(schema: Schema, source: [Unicode.Scalar]) {
@@ -508,11 +539,13 @@ struct InlineParser {
       case "*", "_", "~":
         i = delimiterRun(at: i)
       case "[":
-        brackets.append(Bracket(item: items.count, isImage: false, delimiterBottom: top))
+        brackets.append(
+          Bracket(item: items.count, start: i, isImage: false, delimiterBottom: top))
         items.append(Item(kind: .bracket, text: "[".unicodeScalars))
         i += 1
       case "!" where i + 1 < s.count && s[i + 1] == "[":
-        brackets.append(Bracket(item: items.count, isImage: true, delimiterBottom: top))
+        brackets.append(
+          Bracket(item: items.count, start: i, isImage: true, delimiterBottom: top))
         items.append(Item(kind: .bracket, text: "![".unicodeScalars))
         i += 2
       case "]":
@@ -520,6 +553,7 @@ struct InlineParser {
       case "<":
         if let (uri, end) = Self.autolink(s, at: i) {
           items.append(Item(kind: .autolink(uri)))
+          conversions.append(InlineConversion(.link(uri), open: i..<i + 1, close: end - 1..<end))
           i = end
         } else {
           appendText(c)
@@ -576,12 +610,16 @@ struct InlineParser {
       while k < s.count, s[k] == "`" { k += 1 }
       if k - j == length {
         var content = s[i..<j].map { $0 == "\n" ? " " : $0 }
+        var strip = 0
         if content.count >= 2, content.first == " ", content.last == " ",
           content.contains(where: { $0 != " " })
         {
           content = Array(content.dropFirst().dropLast())
+          strip = 1
         }
         items.append(Item(kind: .code, text: String.UnicodeScalarView(content)))
+        conversions.append(
+          InlineConversion(.mark(.code), open: start..<i + strip, close: j - strip..<k))
         return k
       }
       j = k
@@ -623,7 +661,8 @@ struct InlineParser {
       let index = delimiters.count
       delimiters.append(
         Delimiter(
-          item: items.count, character: c, count: count, originalCount: count, canOpen: canOpen,
+          item: items.count, start: start, character: c, count: count, originalCount: count,
+          canOpen: canOpen,
           canClose: canClose, previous: top, next: -1))
       if top >= 0 { delimiters[top].next = index }
       top = index
@@ -703,6 +742,14 @@ struct InlineParser {
       items[openItem].text.removeLast(use)
       items[closeItem].text.removeFirst(use)
       spans.append((openItem + 1..<closeItem, .mark(kind)))
+      // The opener gives its last characters, the closer its first.
+      let openStart =
+        delimiters[opener].start + delimiters[opener].closed + delimiters[opener].count
+      let closeStart = close.start + close.closed
+      delimiters[closer].closed += use
+      conversions.append(
+        InlineConversion(
+          .mark(kind), open: openStart..<openStart + use, close: closeStart..<closeStart + use))
       // Delimiters between the two are literal now.
       delimiters[opener].next = closer
       delimiters[closer].previous = opener
@@ -736,6 +783,8 @@ struct InlineParser {
     processEmphasis(above: bracket.delimiterBottom)
     items[bracket.item].text = String.UnicodeScalarView()
     spans.append((bracket.item + 1..<items.count, .link(url)))
+    conversions.append(
+      InlineConversion(.link(url), open: bracket.start..<bracket.start + 1, close: i..<end))
     for index in brackets.indices where !brackets[index].isImage {
       brackets[index].isActive = false
     }

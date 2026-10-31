@@ -25,6 +25,9 @@ public struct PluginKey<State: Sendable & Equatable>: Sendable, Hashable {
 public struct PluginRegistry: Sendable {
   public var schema = Schema()
   public internal(set) var transforms: [NodeTransform] = []
+  /// The spans the markdown inline rule converts, from the markdown
+  /// plugins registered so far.
+  var markdownInline: Set<InlineSyntax> = []
   public internal(set) var keyBindings: [KeyBinding] = []
   var commandHandlers: [CommandBus.Registration] = []
   /// Plugin state that lasts only until the selection moves, like stored

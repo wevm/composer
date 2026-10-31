@@ -53,21 +53,81 @@ import Testing
       ])
   }
 
-  @Test func delimitersInsideWordsAndNextToSpacesStayLiteral() {
-    for literal in ["snake_case_name", "2*3*4", "a * b *", "** x**", "**bold*", "`", "**"] {
+  @Test func typingConvertsWhatTheParserWould() {
+    for literal in ["snake_case_name", "a * b *", "** x**", "`", "**", "__a__b"] {
       let controller = typed(literal)
       #expect(controller.document.blocks == [paragraph(text(literal))], "\(literal)")
     }
+    // `*` emphasis works inside words; `_` doesn't.
+    #expect(
+      typed("2*3*4").document.blocks == [paragraph(text("2"), text("3", .italic), text("4"))])
+    #expect(typed("__a__ b").document.blocks == [paragraph(text("a", .bold), text(" b"))])
   }
 
-  @Test func codeTakesNoOtherMarks() {
+  @Test func aLaterCharacterInTheRunChangesTheConversion() {
+    // `**bold*` is a literal `*` and italic text, until the second `*`.
+    let controller = typed("**bold*")
+    #expect(controller.document.blocks == [paragraph(text("*"), text("bold", .italic))])
+    type(controller, "*")
+    #expect(controller.document.blocks == [paragraph(text("bold", .bold))])
+    // A letter after `__a__` makes it literal, and ⌫ makes it bold again.
+    let underscores = typed("__a__b")
+    type(underscores, "⌫")
+    #expect(underscores.document.blocks == [paragraph(text("a", .bold))])
+    // Moving the caret ends the run: what it converted stays, and typing
+    // continues the mark before the caret.
+    let moved = typed("__a__")
+    moved.selection = .caret(0)
+    moved.selection = .caret(1)
+    type(moved, "b")
+    #expect(moved.document.blocks == [paragraph(text("ab", .bold))])
+  }
+
+  @Test func codeTakesItsTextLiterally() {
     let controller = typed("`**x**`")
-    // `**x**` converts first, as it is typed; the code then drops the bold.
-    #expect(controller.document.blocks == [paragraph(text("x", .code))])
-    // The code still ends at its closing delimiter, though the bold
-    // conversion before it left the same stored marks.
+    #expect(controller.document.blocks == [paragraph(text("**x**", .code))])
     type(controller, " z")
-    #expect(controller.document.blocks == [paragraph(text("x", .code), text(" z"))])
+    #expect(controller.document.blocks == [paragraph(text("**x**", .code), text(" z"))])
+  }
+
+  /// Typing without moving the caret converts each paragraph exactly as the
+  /// markdown parser reads the characters typed, at every keystroke.
+  @Test(arguments: [
+    ["a", "word", " ", "*", "**", ".", "!"],
+    ["a", "word", " ", "_", "__", "*", ".", "!"],
+    ["a", "word", " ", "~~", "~", "**", "."],
+    ["a", "word", " ", "`", "**", "_", "."],
+    ["a", "word", " ", "[", "]", "(", ")", "](", "x.y", "**"],
+    ["a", " ", "*", "_", "~", "`", "[", "]", "(", ")", "<", ">", "http:", "."],
+  ])
+  func typingMatchesTheParserAtEveryKeystroke(pieces: [String]) {
+    var random = SeededGenerator(seed: 1)
+    let codec = MarkdownCodec()
+    for _ in 0..<1500 {
+      let count = Int.random(in: 1...10, using: &random)
+      let source = (0..<count).map { _ in pieces.randomElement(using: &random)! }.joined()
+      let controller = ComposerController(plugins: [PluginGroup.markdown])
+      var prefix = ""
+      for character in source {
+        controller.insertText(String(character))
+        prefix.append(character)
+        // The parser trims a paragraph's edges, and block syntax is the
+        // block rules' to convert.
+        guard let first = prefix.first, let last = prefix.last, !first.isWhitespace,
+          !last.isWhitespace
+        else { continue }
+        let parsed = codec.canonical(codec.parse(prefix))
+        guard parsed.blocks.count == 1, case .paragraph = parsed.blocks[0],
+          controller.document.blocks.count == 1, case .paragraph = controller.document.blocks[0]
+        else { continue }
+        guard codec.canonical(controller.document) == parsed else {
+          Issue.record(
+            "\(prefix.debugDescription): typed \(codec.serialize(controller.document).debugDescription), parsed \(codec.serialize(parsed).debugDescription)"
+          )
+          return
+        }
+      }
+    }
   }
 
   @Test func aLinkConvertsOnItsClosingParenthesis() {
