@@ -64,6 +64,10 @@ import Testing
     let controller = typed("`**x**`")
     // `**x**` converts first, as it is typed; the code then drops the bold.
     #expect(controller.document.blocks == [paragraph(text("x", .code))])
+    // The code still ends at its closing delimiter, though the bold
+    // conversion before it left the same stored marks.
+    type(controller, " z")
+    #expect(controller.document.blocks == [paragraph(text("x", .code), text(" z"))])
   }
 
   @Test func aLinkConvertsOnItsClosingParenthesis() {

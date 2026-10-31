@@ -167,12 +167,13 @@ public final class ComposerController {
     for hook in stateHooks { hook.body(&state) }
     let edits = state.tracking!.edits
     let truncated = state.tracking!.truncated
+    let setsStoredMarks = state.tracking!.setsStoredMarks
     state.tracking = nil
     // Moving the caret ends the stored marks and transient plugin state,
     // unless this update set them; a composition keeps them until it
     // commits.
     if state.selection != selectionBefore, state.markedText == nil, before.markedText == nil {
-      if state.storedMarks != nil, state.storedMarks == before.storedMarks {
+      if state.storedMarks != nil, !setsStoredMarks {
         state.storedMarks = nil
       }
       for name in transientState where state.pluginState(named: name, equals: before) {

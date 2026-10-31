@@ -65,6 +65,7 @@ public struct EditorState: Sendable, Equatable {
     set {
       makeUnique()
       storage.storedMarks = newValue
+      if newValue != nil, storage.tracking != nil { storage.tracking!.setsStoredMarks = true }
     }
   }
 
@@ -178,6 +179,9 @@ public struct EditorState: Sendable, Equatable {
     var isTyping = false
     /// Text a hard length limit removed (see `MaxLength`).
     var truncated = ""
+    /// Whether the update set the stored marks, so moving the selection
+    /// keeps them, even when they equal the ones it started with.
+    var setsStoredMarks = false
   }
 
   // Safe to share across threads: storage is only mutated when uniquely
