@@ -40,6 +40,14 @@ extension EditorState {
     replace(range, with: [])
   }
 
+  /// Deletes a range the user selected. Deleting everything leaves an empty
+  /// paragraph, not the first block's empty list item, quote, or code block.
+  mutating func deleteSelection(_ range: DocumentRange) {
+    let isEverything = range.offsets == 0..<document.length
+    delete(range)
+    if isEverything, document.length == 0, !document.isEmpty { document = .empty }
+  }
+
   /// Splits the text block at `position` into two. In a code block this
   /// inserts a line break instead.
   public mutating func splitBlock(at position: Position) {

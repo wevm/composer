@@ -48,6 +48,25 @@ import Testing
     #expect(controller.selection == .caret(1))
   }
 
+  /// Deleting or typing over everything leaves a plain paragraph, not the
+  /// first block's list item, task, quote, or code block.
+  @Test func replacingEverythingReplacesTheStructure() {
+    for markdown in ["- [ ] one\n- two\n\nafter", "> q", "```\nx\n```"] {
+      let controller = ComposerController(EditorState(document: MarkdownCodec().parse(markdown)))
+      controller.selection = Selection(anchor: 0, head: Position(controller.document.length))
+      controller.deleteBackward()
+      #expect(controller.isEmpty, "\(markdown)")
+      controller.insertText("x")
+      controller.selection = Selection(anchor: 0, head: 1)
+      controller.insertText("y")
+      #expect(controller.document.blocks == [paragraph(text("y"))], "\(markdown)")
+    }
+    let partial = ComposerController(EditorState(document: MarkdownCodec().parse("- one\n- two")))
+    partial.selection = Selection(anchor: 0, head: Position(partial.document.length - 1))
+    partial.deleteBackward()
+    #expect(partial.markdown == "- o", "a partial selection keeps the list")
+  }
+
   @Test func newlineSplitsOrBreaksALine() {
     let controller = self.controller(paragraph(text("abcd")), caret: 2)
     controller.insertNewline()

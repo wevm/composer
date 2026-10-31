@@ -44,7 +44,13 @@ extension ComposerController {
       let target = range ?? state.markedText?.range ?? state.selection.range
       state.markedText = nil
       state.tracking?.isTyping = text.count == 1 && text != "\n"
-      state.insert(text, at: Selection(target))
+      if !target.isEmpty, target.offsets == 0..<state.document.length {
+        let marks = state.typingMarks(at: target.lowerBound)
+        state.deleteSelection(target)
+        state.insert(text, at: .caret(0), marks: marks)
+      } else {
+        state.insert(text, at: Selection(target))
+      }
     }
   }
 
@@ -91,7 +97,7 @@ extension ComposerController {
       state.markedText = nil
       let range = state.selection.range
       if !range.isEmpty {
-        state.delete(range)
+        state.deleteSelection(range)
         return
       }
       let offset = range.lowerBound.offset
@@ -107,7 +113,7 @@ extension ComposerController {
       state.markedText = nil
       let range = state.selection.range
       if !range.isEmpty {
-        state.delete(range)
+        state.deleteSelection(range)
         return
       }
       let offset = range.lowerBound.offset
@@ -122,7 +128,7 @@ extension ComposerController {
     update { state in
       state.markedText = nil
       let range = state.selection.range
-      if !range.isEmpty { state.delete(range) }
+      if !range.isEmpty { state.deleteSelection(range) }
       state.splitBlock(at: range.lowerBound)
       state.selection = .caret(range.lowerBound.offset + 1)
     }
